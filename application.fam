@@ -1,0 +1,15 @@
+App(
+    appid="hitags_writer",
+    name="HiTagS Writer",
+    apptype=FlipperAppType.EXTERNAL,
+    targets=["f7"],
+    entry_point="hitags_writer_app",
+    stack_size=4 * 1024,
+    order=20,
+    fap_version="0.1",
+    fap_description="Write EM4100 data to HiTag S 8268 magic chips",
+    fap_author="Tinnci",
+    fap_icon="hitags_writer.png",
+    fap_icon_assets="images",
+    fap_category="RFID",
+)

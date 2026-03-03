@@ -1,0 +1,11 @@
+# pixi environments
+.pixi/*
+!.pixi/config.toml
+
+# ufbt build artifacts
+dist/
+.vscode/
+*.elf
+
+# pixi lock file
+pixi.lock

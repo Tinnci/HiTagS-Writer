@@ -1,0 +1,17 @@
+[workspace]
+authors = ["Tinnci <Tinnci@users.noreply.github.com>"]
+channels = ["conda-forge"]
+name = "HiTagS Writer"
+platforms = ["linux-64"]
+version = "0.1.0"
+
+[tasks]
+install-ufbt = "pip install ufbt"
+build = { cmd = "ufbt", depends-on = ["install-ufbt"] }
+launch = { cmd = "ufbt launch", depends-on = ["install-ufbt"] }
+clean = "ufbt clean"
+lint = "ufbt lint"
+
+[dependencies]
+python = ">=3.11"
+pip = "*"
