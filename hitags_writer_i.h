@@ -17,9 +17,9 @@
 #include <gui/modules/submenu.h>
 #include <gui/modules/dialog_ex.h>
 #include <gui/modules/popup.h>
-#include <gui/modules/text_input.h>
 #include <gui/modules/byte_input.h>
 #include <gui/modules/widget.h>
+#include <gui/modules/loading.h>
 
 #include <dialogs/dialogs.h>
 #include <storage/storage.h>
@@ -43,6 +43,9 @@
 /* EM4100 ID is 5 bytes */
 #define EM4100_ID_SIZE 5
 
+/* Worker thread stack size */
+#define HITAGS_WRITER_WORKER_STACK_SIZE (2 * 1024)
+
 /* --- Custom Events --- */
 typedef enum {
     HitagSEventNext = 100,
@@ -50,6 +53,7 @@ typedef enum {
     HitagSEventPopupClosed,
     HitagSEventWriteOk,
     HitagSEventWriteFailed,
+    HitagSEventWriteRetrying,
     HitagSEventReadOk,
     HitagSEventReadFailed,
 } HitagSCustomEvent;
@@ -60,9 +64,16 @@ typedef enum {
     HitagSViewDialogEx,
     HitagSViewPopup,
     HitagSViewWidget,
-    HitagSViewTextInput,
     HitagSViewByteInput,
+    HitagSViewLoading,
 } HitagSView;
+
+/* --- Worker operation type --- */
+typedef enum {
+    HitagSWorkerIdle,
+    HitagSWorkerWrite,
+    HitagSWorkerReadUid,
+} HitagSWorkerOp;
 
 /* --- Main App Structure --- */
 typedef struct HitagSApp HitagSApp;
@@ -83,8 +94,13 @@ struct HitagSApp {
     DialogEx* dialog_ex;
     Popup* popup;
     Widget* widget;
-    TextInput* text_input;
     ByteInput* byte_input;
+    Loading* loading;
+
+    /* Worker thread */
+    FuriThread* worker_thread;
+    HitagSWorkerOp worker_op;
+    bool worker_running;
 
     /* Working data */
     uint8_t em4100_id[EM4100_ID_SIZE]; /**< Target EM4100 ID to write */
@@ -105,4 +121,9 @@ struct HitagSApp {
 
 void hitags_writer_popup_timeout_callback(void* context);
 void hitags_writer_widget_callback(GuiButtonType result, InputType type, void* context);
-void hitags_writer_text_input_callback(void* context);
+
+/** Start worker thread for a given operation */
+void hitags_writer_worker_start(HitagSApp* app, HitagSWorkerOp op);
+
+/** Stop worker thread (blocks until done) */
+void hitags_writer_worker_stop(HitagSApp* app);

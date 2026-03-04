@@ -39,8 +39,8 @@ void hitags_writer_scene_select_file_on_enter(void* context) {
                     app->em4100_id[3],
                     app->em4100_id[4]);
 
-                /* Proceed to write */
-                scene_manager_next_scene(app->scene_manager, HitagSSceneWrite);
+                /* Proceed to confirmation */
+                scene_manager_next_scene(app->scene_manager, HitagSSceneWriteConfirm);
                 return;
             }
         }

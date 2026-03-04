@@ -33,8 +33,8 @@ bool hitags_writer_scene_input_id_on_event(void* context, SceneManagerEvent even
 
     if(event.type == SceneManagerEventTypeCustom) {
         if(event.event == HitagSEventNext) {
-            /* ID entered, proceed to write */
-            scene_manager_next_scene(app->scene_manager, HitagSSceneWrite);
+            /* ID entered, proceed to confirmation */
+            scene_manager_next_scene(app->scene_manager, HitagSSceneWriteConfirm);
             consumed = true;
         }
     }

@@ -6,7 +6,7 @@ App(
     entry_point="hitags_writer_app",
     stack_size=4 * 1024,
     order=20,
-    fap_version="0.1",
+    fap_version="0.2",
     fap_description="Write EM4100 data to HiTag S 8268 magic chips",
     fap_author="Tinnci",
     fap_icon="hitags_writer.png",

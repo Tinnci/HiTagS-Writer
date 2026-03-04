@@ -1,6 +1,7 @@
 ADD_SCENE(hitags_writer, start, Start)
 ADD_SCENE(hitags_writer, input_id, InputId)
 ADD_SCENE(hitags_writer, select_file, SelectFile)
+ADD_SCENE(hitags_writer, write_confirm, WriteConfirm)
 ADD_SCENE(hitags_writer, write, Write)
 ADD_SCENE(hitags_writer, write_success, WriteSuccess)
 ADD_SCENE(hitags_writer, write_fail, WriteFail)

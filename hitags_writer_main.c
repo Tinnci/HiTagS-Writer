@@ -10,6 +10,74 @@
 
 #define TAG "HitagSWriter"
 
+/* --- Worker Thread --- */
+
+static int32_t hitags_writer_worker_thread(void* context) {
+    HitagSApp* app = context;
+
+    if(app->worker_op == HitagSWorkerWrite) {
+        /* Prepare EM4100 data for HiTag S pages */
+        Em4100HitagData hitag_data;
+        em4100_prepare_hitag_data(app->em4100_id, &hitag_data);
+
+        uint32_t pages[3] = {
+            hitag_data.config_page,
+            hitag_data.data_hi,
+            hitag_data.data_lo,
+        };
+        uint8_t page_addrs[3] = {1, 4, 5};
+
+        FURI_LOG_I(
+            TAG,
+            "Worker: Writing EM4100 ID %02X%02X%02X%02X%02X",
+            app->em4100_id[0],
+            app->em4100_id[1],
+            app->em4100_id[2],
+            app->em4100_id[3],
+            app->em4100_id[4]);
+
+        app->last_result =
+            hitag_s_8268_write_sequence(app->password, pages, page_addrs, 3);
+
+        if(app->last_result == HitagSResultOk) {
+            FURI_LOG_I(TAG, "Worker: Write successful!");
+            view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventWriteOk);
+        } else {
+            FURI_LOG_E(TAG, "Worker: Write failed (%d)", app->last_result);
+            view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventWriteFailed);
+        }
+    } else if(app->worker_op == HitagSWorkerReadUid) {
+        FURI_LOG_I(TAG, "Worker: Reading UID...");
+
+        app->last_result = hitag_s_read_uid_sequence(&app->tag_uid);
+
+        if(app->last_result == HitagSResultOk) {
+            FURI_LOG_I(TAG, "Worker: UID=%08lX", (unsigned long)app->tag_uid);
+            view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventReadOk);
+        } else {
+            FURI_LOG_W(TAG, "Worker: UID read failed");
+            view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventReadFailed);
+        }
+    }
+
+    return 0;
+}
+
+void hitags_writer_worker_start(HitagSApp* app, HitagSWorkerOp op) {
+    furi_assert(!app->worker_running);
+    app->worker_op = op;
+    app->worker_running = true;
+    furi_thread_start(app->worker_thread);
+}
+
+void hitags_writer_worker_stop(HitagSApp* app) {
+    if(app->worker_running) {
+        furi_thread_join(app->worker_thread);
+        app->worker_running = false;
+    }
+    app->worker_op = HitagSWorkerIdle;
+}
+
 /* --- Event Callbacks --- */
 
 static bool hitags_writer_custom_event_callback(void* context, uint32_t event) {
@@ -38,11 +106,6 @@ void hitags_writer_widget_callback(GuiButtonType result, InputType type, void* c
     }
 }
 
-void hitags_writer_text_input_callback(void* context) {
-    HitagSApp* app = context;
-    view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventNext);
-}
-
 /* --- Alloc / Free --- */
 
 static HitagSApp* hitags_writer_alloc(void) {
@@ -53,6 +116,8 @@ static HitagSApp* hitags_writer_alloc(void) {
     memset(app->em4100_id, 0, sizeof(app->em4100_id));
     app->tag_uid = 0;
     app->last_result = HitagSResultError;
+    app->worker_running = false;
+    app->worker_op = HitagSWorkerIdle;
 
     /* Open services */
     app->storage = furi_record_open(RECORD_STORAGE);
@@ -67,12 +132,15 @@ static HitagSApp* hitags_writer_alloc(void) {
     app->dict = protocol_dict_alloc(lfrfid_protocols, LFRFIDProtocolMax);
     app->protocol_id = PROTOCOL_NO;
 
+    /* Worker thread */
+    app->worker_thread = furi_thread_alloc_ex(
+        "HitagSWorker", HITAGS_WRITER_WORKER_STACK_SIZE, hitags_writer_worker_thread, app);
+
     /* Scene Manager */
     app->scene_manager = scene_manager_alloc(&hitags_writer_scene_handlers, app);
 
     /* View Dispatcher */
     app->view_dispatcher = view_dispatcher_alloc();
-    /* Note: view_dispatcher_enable_queue is deprecated in newer SDK */
     view_dispatcher_set_event_callback_context(app->view_dispatcher, app);
     view_dispatcher_set_custom_event_callback(
         app->view_dispatcher, hitags_writer_custom_event_callback);
@@ -99,21 +167,25 @@ static HitagSApp* hitags_writer_alloc(void) {
     view_dispatcher_add_view(
         app->view_dispatcher, HitagSViewWidget, widget_get_view(app->widget));
 
-    /* Text Input */
-    app->text_input = text_input_alloc();
-    view_dispatcher_add_view(
-        app->view_dispatcher, HitagSViewTextInput, text_input_get_view(app->text_input));
-
     /* Byte Input */
     app->byte_input = byte_input_alloc();
     view_dispatcher_add_view(
         app->view_dispatcher, HitagSViewByteInput, byte_input_get_view(app->byte_input));
+
+    /* Loading */
+    app->loading = loading_alloc();
+    view_dispatcher_add_view(
+        app->view_dispatcher, HitagSViewLoading, loading_get_view(app->loading));
 
     return app;
 }
 
 static void hitags_writer_free(HitagSApp* app) {
     furi_assert(app);
+
+    /* Stop worker if running */
+    hitags_writer_worker_stop(app);
+    furi_thread_free(app->worker_thread);
 
     /* String */
     furi_string_free(app->file_path);
@@ -134,11 +206,11 @@ static void hitags_writer_free(HitagSApp* app) {
     view_dispatcher_remove_view(app->view_dispatcher, HitagSViewWidget);
     widget_free(app->widget);
 
-    view_dispatcher_remove_view(app->view_dispatcher, HitagSViewTextInput);
-    text_input_free(app->text_input);
-
     view_dispatcher_remove_view(app->view_dispatcher, HitagSViewByteInput);
     byte_input_free(app->byte_input);
+
+    view_dispatcher_remove_view(app->view_dispatcher, HitagSViewLoading);
+    loading_free(app->loading);
 
     /* Framework */
     view_dispatcher_free(app->view_dispatcher);
@@ -160,7 +232,7 @@ int32_t hitags_writer_app(void* p) {
 
     HitagSApp* app = hitags_writer_alloc();
 
-    FURI_LOG_I(TAG, "HiTagS Writer starting...");
+    FURI_LOG_I(TAG, "HiTagS Writer v0.2 starting...");
 
     view_dispatcher_attach_to_gui(app->view_dispatcher, app->gui, ViewDispatcherTypeFullscreen);
     scene_manager_next_scene(app->scene_manager, HitagSSceneStart);
