@@ -160,6 +160,7 @@ static size_t hitag_s_decode_ac2k(
     size_t sof_remaining = sof_bits;
     size_t data_bits = 0;
     bool first_period = true;
+    size_t period_count = 0;
 
     for(size_t i = 0; i < cap->edge_count && data_bits < max_bits; i++) {
         if(cap->levels[i]) continue; /* skip HIGH entries, only use periods */
@@ -168,11 +169,20 @@ static size_t hitag_s_decode_ac2k(
 
         if(first_period) {
             first_period = false;
-            FURI_LOG_D(TAG, "AC2K: skip startup period %lu", (unsigned long)rb);
+            FURI_LOG_I(TAG, "AC2K: skip startup period %lu", (unsigned long)rb);
             continue;
         }
 
         if(rb < HITAG_S_AC2K_GLITCH_US) continue;
+
+        /* Log first 10 periods for debugging */
+        if(period_count < 10) {
+            const char* cls = (rb >= HITAG_S_AC2K_THRESH_34_US) ? "4H" :
+                              (rb >= HITAG_S_AC2K_THRESH_23_US) ? "3H" : "2H";
+            FURI_LOG_I(TAG, "AC2K p[%d]: %lu (%s)",
+                (int)period_count, (unsigned long)rb, cls);
+        }
+        period_count++;
 
         if(rb >= HITAG_S_AC2K_THRESH_34_US) {
             /* FOUR_HALF: one '0' bit */
@@ -212,8 +222,8 @@ static size_t hitag_s_decode_ac2k(
         }
     }
 
-    FURI_LOG_D(TAG, "AC2K: %d edges -> %d bits (%d SOF + %d data)",
-        (int)cap->edge_count, (int)total_bits,
+    FURI_LOG_I(TAG, "AC2K: %d edges, %d periods -> %d bits (%d SOF + %d data)",
+        (int)cap->edge_count, (int)period_count, (int)total_bits,
         (int)sof_bits, (int)data_bits);
 
     if(data_bits > 0) {
@@ -298,6 +308,11 @@ static size_t hitag_s_decode_mc4k(
         bool data_bit;
 
         if(manchester_advance(state, event, &next_state, &data_bit)) {
+            /* Hitag S uses INVERTED Manchester polarity vs EM4100:
+             * Hitag S '0' = UNLOAD→LOAD = H→L (which EM4100 calls '1')
+             * Hitag S '1' = LOAD→UNLOAD = L→H (which EM4100 calls '0')
+             * So we invert the decoded bit to get correct Hitag S data. */
+            data_bit = !data_bit;
             total_bits++;
             if(sof_remaining > 0) {
                 sof_remaining--;
@@ -312,7 +327,7 @@ static size_t hitag_s_decode_mc4k(
         state = next_state;
     }
 
-    FURI_LOG_D(TAG, "MC4K: %d edges -> %d bits (%d SOF + %d data)",
+    FURI_LOG_I(TAG, "MC4K: %d edges -> %d bits (%d SOF + %d data)",
         (int)cap->edge_count, (int)total_bits,
         (int)sof_bits, (int)data_bits);
 
