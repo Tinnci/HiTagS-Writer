@@ -15,24 +15,20 @@
 #define EM41XX_COLUMNS 4
 #define EM41XX_HEADER  0x1FFULL /* 9 bits of 1s */
 
-/**
- * @brief HiTag S page 1 config for EM4100 TTF emulation:
- *   CON0 = 0x48: MEMT=01 (256 pages), LCON=0, LKP=0
- *   CON1 = 0x00: auth=0, no lock bits
- *   CON2 = 0x00
- *   PWDH0 = 0x00
+/* TTF configuration bits in CON1 byte (byte 1 of config page):
+ *   auth[7] TTFC[6] TTFDR[5:4] TTFM[3:2] LCON[1] LKP[0]
  *
- * Note: For EM4100 emulation, the 8268 config page should set:
- *   - TTFM = Manchester
- *   - TTFDR = RF/64 (same as EM4100)
- *   - TTF enabled
- *   - auth bit can be left set (we already authenticated)
+ * For EM4100 emulation:
+ *   TTFC  = 0  (Manchester coding)
+ *   TTFDR = 10 (2 kBit/s = fc/64, same as EM4100)
+ *   TTFM  = 01 (broadcast pages 4-5, total 64 bits)
  *
- * Observed default config: 0xDAA40000
- * We may need to modify this based on actual chip behavior.
- * For now we write the config that enables EM4100-compatible output.
+ * CON0 byte: RES5[7] RES4[6] RES3[5] RES2[4] RES1[3] RES0[2] MEMT[1:0]
+ *   RES0 must be 0 for standard TTF mode (combined with TTFM).
  */
-#define HITAG_S_EM4100_CONFIG 0x48000000UL
+#define EM4100_TTF_CON1_MASK  0xFC  /* Bits to modify: auth, TTFC, TTFDR, TTFM */
+#define EM4100_TTF_CON1_VALUE 0x24  /* 0b00100100: auth=0, TTFC=0, TTFDR=10, TTFM=01 */
+#define EM4100_TTF_CON0_RES0_BIT 0x04 /* RES0 = bit 2 of CON0, must be 0 */
 
 static bool get_parity(uint16_t data) {
     bool result = false;
@@ -97,14 +93,38 @@ void em4100_prepare_hitag_data(const uint8_t* id_bytes, Em4100HitagData* out_dat
     /* Split 64-bit encoded data into two 32-bit pages */
     out_data->data_hi = (uint32_t)(encoded >> 32);
     out_data->data_lo = (uint32_t)(encoded & 0xFFFFFFFF);
-    out_data->config_page = HITAG_S_EM4100_CONFIG;
 
     FURI_LOG_I(
         TAG,
-        "HiTag data prepared: config=%08lX hi=%08lX lo=%08lX",
-        (unsigned long)out_data->config_page,
+        "HiTag data prepared: hi=%08lX lo=%08lX",
         (unsigned long)out_data->data_hi,
         (unsigned long)out_data->data_lo);
+}
+
+uint32_t em4100_config_set_ttf(uint32_t current_config) {
+    /* Config page is 4 bytes, MSB first on wire:
+     * Byte 0 = CON0, Byte 1 = CON1, Byte 2 = CON2, Byte 3 = PWDH0
+     * As uint32_t (big-endian on wire): CON0 is bits [31:24], CON1 is bits [23:16] */
+
+    uint8_t con0 = (current_config >> 24) & 0xFF;
+    uint8_t con1 = (current_config >> 16) & 0xFF;
+
+    /* Clear RES0 bit in CON0 (required for standard TTFM interpretation) */
+    con0 &= ~EM4100_TTF_CON0_RES0_BIT;
+
+    /* Modify CON1: set TTF fields, preserve LCON and LKP */
+    con1 = (con1 & ~EM4100_TTF_CON1_MASK) | (EM4100_TTF_CON1_VALUE & EM4100_TTF_CON1_MASK);
+
+    uint32_t new_config = (current_config & 0x0000FFFF) | ((uint32_t)con0 << 24) | ((uint32_t)con1 << 16);
+
+    FURI_LOG_I(
+        TAG,
+        "Config TTF set: %08lX -> %08lX (CON0=%02X CON1=%02X)",
+        (unsigned long)current_config,
+        (unsigned long)new_config,
+        con0, con1);
+
+    return new_config;
 }
 
 bool em4100_decode_hitag_data(uint32_t data_hi, uint32_t data_lo, uint8_t* id_bytes) {

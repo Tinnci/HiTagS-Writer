@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include "em4100_encode.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -163,6 +164,19 @@ HitagSResult hitag_s_8268_write_sequence(
     const uint32_t* pages,
     const uint8_t* page_addrs,
     size_t page_count);
+
+/**
+ * @brief Full EM4100 write sequence: UID → SELECT → Auth → Read config →
+ *        Modify TTF → Write config → Write EM4100 data pages 4,5
+ * @param password    Authentication password
+ * @param em_data     Prepared EM4100 data (pages 4 and 5)
+ * @param config_out  Optional: pointer to store final config value (may be NULL)
+ * @return HitagSResult
+ */
+HitagSResult hitag_s_8268_write_em4100_sequence(
+    uint32_t password,
+    const Em4100HitagData* em_data,
+    uint32_t* config_out);
 
 /**
  * @brief Full read sequence for 8268: UID request → SELECT → Auth → Read pages

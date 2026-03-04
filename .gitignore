@@ -9,3 +9,4 @@ dist/
 
 # pixi lock file
 pixi.lock
+refs/

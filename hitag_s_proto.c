@@ -7,6 +7,7 @@
  */
 
 #include "hitag_s_proto.h"
+#include "em4100_encode.h"
 #include <furi.h>
 #include <furi_hal.h>
 #include <toolbox/manchester_decoder.h>
@@ -824,6 +825,87 @@ HitagSResult hitag_s_8268_write_sequence(
     }
 
     FURI_LOG_I(TAG, "Write sequence: All %d pages written successfully!", (int)page_count);
+    hitag_s_field_off();
+    return HitagSResultOk;
+}
+
+HitagSResult hitag_s_8268_write_em4100_sequence(
+    uint32_t password,
+    const Em4100HitagData* em_data,
+    uint32_t* config_out) {
+    uint32_t uid = 0;
+    uint32_t config = 0;
+
+    hitag_s_field_on();
+
+    /* Step 1: UID request */
+    HitagSResult result = hitag_s_uid_request(&uid);
+    if(result != HitagSResultOk) {
+        FURI_LOG_E(TAG, "EM4100 write: UID request failed");
+        hitag_s_field_off();
+        return result;
+    }
+
+    /* Step 2: SELECT — also gives us the current config page */
+    result = hitag_s_select(uid, &config);
+    if(result != HitagSResultOk) {
+        FURI_LOG_E(TAG, "EM4100 write: SELECT failed");
+        hitag_s_field_off();
+        return result;
+    }
+
+    FURI_LOG_I(TAG, "EM4100 write: current config = %08lX", (unsigned long)config);
+
+    /* Step 3: Authenticate with 82xx password */
+    result = hitag_s_8268_authenticate(password);
+    if(result != HitagSResultOk) {
+        FURI_LOG_E(TAG, "EM4100 write: Authentication failed");
+        hitag_s_field_off();
+        return result;
+    }
+
+    /* Step 4: Read config page after auth to get full current state */
+    uint32_t current_config = 0;
+    result = hitag_s_read_page(1, &current_config);
+    if(result != HitagSResultOk) {
+        FURI_LOG_W(TAG, "EM4100 write: Can't read config, using SELECT value");
+        current_config = config;
+    } else {
+        FURI_LOG_I(TAG, "EM4100 write: read config = %08lX", (unsigned long)current_config);
+    }
+
+    /* Step 5: Modify config for EM4100 TTF (read-modify-write) */
+    uint32_t new_config = em4100_config_set_ttf(current_config);
+    if(config_out) *config_out = new_config;
+
+    /* Step 6: Write modified config to page 1 */
+    result = hitag_s_write_page(1, new_config);
+    if(result != HitagSResultOk) {
+        FURI_LOG_E(TAG, "EM4100 write: Write config page failed");
+        hitag_s_field_off();
+        return result;
+    }
+
+    /* Step 7: Write EM4100 data to pages 4 and 5 */
+    result = hitag_s_write_page(4, em_data->data_hi);
+    if(result != HitagSResultOk) {
+        FURI_LOG_E(TAG, "EM4100 write: Write page 4 failed");
+        hitag_s_field_off();
+        return result;
+    }
+
+    result = hitag_s_write_page(5, em_data->data_lo);
+    if(result != HitagSResultOk) {
+        FURI_LOG_E(TAG, "EM4100 write: Write page 5 failed");
+        hitag_s_field_off();
+        return result;
+    }
+
+    FURI_LOG_I(TAG, "EM4100 write: SUCCESS! Config=%08lX Data=%08lX %08lX",
+        (unsigned long)new_config,
+        (unsigned long)em_data->data_hi,
+        (unsigned long)em_data->data_lo);
+
     hitag_s_field_off();
     return HitagSResultOk;
 }

@@ -16,16 +16,16 @@ static int32_t hitags_writer_worker_thread(void* context) {
     HitagSApp* app = context;
 
     if(app->worker_op == HitagSWorkerWrite) {
-        /* Write: retry up to 15 times, then report failure */
+        /* Write: retry up to 15 times, then report failure.
+         * Write sequence:
+         *   1. Auth (UID_REQ → SELECT → 82xx password)
+         *   2. Read current config page (page 1)
+         *   3. Modify config for EM4100 TTF (TTFC=Manchester, TTFDR=fc/64, TTFM=pages 4-5)
+         *   4. Write modified config to page 1
+         *   5. Write EM4100 data to pages 4 and 5
+         */
         Em4100HitagData hitag_data;
         em4100_prepare_hitag_data(app->em4100_id, &hitag_data);
-
-        uint32_t pages[3] = {
-            hitag_data.config_page,
-            hitag_data.data_hi,
-            hitag_data.data_lo,
-        };
-        uint8_t page_addrs[3] = {1, 4, 5};
 
         FURI_LOG_I(
             TAG,
@@ -44,11 +44,18 @@ static int32_t hitags_writer_worker_thread(void* context) {
             if(flags & HITAGS_WORKER_FLAG_STOP) break;
 
             attempts++;
+
+            /* Full write sequence with config read-modify-write */
+            uint32_t config_page = 0;
             app->last_result =
-                hitag_s_8268_write_sequence(app->password, pages, page_addrs, 3);
+                hitag_s_8268_write_em4100_sequence(
+                    app->password,
+                    &hitag_data,
+                    &config_page);
 
             if(app->last_result == HitagSResultOk) {
-                FURI_LOG_I(TAG, "Worker: Write OK (attempt %d)", attempts);
+                FURI_LOG_I(TAG, "Worker: Write OK (attempt %d, config=%08lX)",
+                    attempts, (unsigned long)config_page);
                 view_dispatcher_send_custom_event(
                     app->view_dispatcher, HitagSEventWriteOk);
                 break;
