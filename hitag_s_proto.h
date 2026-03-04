@@ -47,11 +47,16 @@ extern "C" {
 #define HITAG_S_T_WAIT_RESP_US    200  /* Wait for tag response */
 #define HITAG_S_T_PROG_US         5600 /* Program time after write (700 × T0) */
 
-/* --- Manchester decoding thresholds (in timer ticks at capture resolution) --- */
-#define HITAG_S_MC_SHORT_MIN_US   100  /* Min short pulse */
-#define HITAG_S_MC_SHORT_MAX_US   280  /* Max short pulse */
-#define HITAG_S_MC_LONG_MIN_US    300  /* Min long pulse */
-#define HITAG_S_MC_LONG_MAX_US    500  /* Max long pulse */
+/* --- MC4K Manchester decoding (post-SELECT data exchange) ---
+ * Half-bit = 128µs = 16 × T0, Full-bit = 256µs = 32 × T0 */
+#define HITAG_S_MC4K_THRESHOLD_US  192  /* Midpoint: SHORT ~128µs / LONG ~256µs */
+#define HITAG_S_MC4K_GLITCH_US     50   /* Min valid pulse duration */
+
+/* --- AC2K Anti-collision decoding (UID response) ---
+ * Half = 256µs = 32 × T0, based on 16 × T0 quarter periods */
+#define HITAG_S_AC2K_THRESH_23_US  320  /* Between 2-half (256µs) and 3-half (384µs) */
+#define HITAG_S_AC2K_THRESH_34_US  448  /* Between 3-half (384µs) and 4-half (512µs) */
+#define HITAG_S_AC2K_GLITCH_US     80   /* Min valid period */
 
 /* --- Tag memory pages --- */
 #define HITAG_S_PAGE_UID    0

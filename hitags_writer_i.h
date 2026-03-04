@@ -37,7 +37,7 @@
 #include <hitags_writer_icons.h>
 
 #define HITAGS_WRITER_TEXT_STORE_SIZE 64
-#define HITAGS_WRITER_APP_FOLDER     ANY_PATH("lfrfid")
+#define HITAGS_WRITER_APP_FOLDER     EXT_PATH("lfrfid")
 #define HITAGS_WRITER_APP_EXTENSION  ".rfid"
 
 /* EM4100 ID is 5 bytes */

@@ -83,19 +83,24 @@ void hitag_s_send_frame(const uint8_t* data, size_t bits) {
 }
 
 /* ============================================================
- * Manchester Receive — Capture tag response via edge timing
+ * Tag Response Decoders
  *
- * Uses Flipper's built-in manchester_advance() state machine
- * with adaptive threshold calibration from captured edges.
+ * Hitag S uses two response encoding modes:
  *
- * Hitag S MC4K (4 kbit/s at 125kHz carrier):
- *   Bit period = 250µs = 32 carrier cycles
- *   Half-bit   = 125µs = 16 carrier cycles
- *   Short pulse ≈ 125µs (half-bit)
- *   Long pulse  ≈ 250µs (full-bit = two half-bits)
+ * AC2K (Anti-Collision 2kbit/s) — for UID responses:
+ *   Bit period = 512µs = 64 × T0
+ *   '0' = LOAD(half) + UNLOAD(half) [one rising edge per bit]
+ *   '1' = L/U/L/U quarter periods   [two rising edges per bit]
+ *   Decoded via rising-edge interval analysis (Proxmark3 algorithm).
  *
- * The capture callback stores both level and duration for
- * accurate ManchesterEvent classification.
+ * MC4K (Manchester 4kbit/s) — for data exchange after SELECT:
+ *   Bit period = 256µs = 32 × T0
+ *   Half-bit = 128µs = 16 × T0
+ *   Uses Flipper's manchester_advance() state machine.
+ *
+ * Capture callback stores edge level + duration from TIM2:
+ *   level=true  (CH3 falling): HIGH pulse width
+ *   level=false (CH4 rising+reset): total period (rising-to-rising)
  * ============================================================ */
 
 /* Maximum edges we can capture (128 bits × 2 edges/bit + SOF + margin) */
@@ -125,108 +130,163 @@ static void hitag_s_capture_callback(bool level, uint32_t duration, void* contex
 }
 
 /**
- * @brief Decode captured edges using Flipper's manchester_advance() state machine
+ * @brief Decode AC2K anti-collision response (used for UID)
  *
- * Pre-processes captured edge data to compute actual pulse durations:
- * - level=true (CH3 falling): HIGH pulse duration → used directly
- * - level=false (CH4 rising+reset): total period → LOW = period - prev HIGH
+ * AC2K encodes bits as tag load modulation patterns. The rising-to-rising
+ * intervals (level=false periods from TIM2) classify as:
+ *   TWO_HALF   (~256µs) : within a '1' bit (alternating L/U pattern)
+ *   THREE_HALF (~384µs) : transition between '0' and '1'
+ *   FOUR_HALF  (~512µs) : consecutive '0' bits
  *
- * Then classifies each edge as Short/Long + High/Low → ManchesterEvent,
- * feeds into the built-in state machine which outputs decoded bits.
+ * Based on Proxmark3 hitag_common.c AC decoding algorithm.
  *
  * @param cap       Capture context with raw edges
  * @param out_data  Output buffer for decoded bits (packed, MSB first)
- * @param max_bits  Maximum bits to decode
- * @return Number of decoded bits
+ * @param max_bits  Maximum data bits to decode (excluding SOF)
+ * @param sof_bits  Number of SOF bits to strip (1 for STD, 3 for ADV)
+ * @return Number of decoded data bits (after SOF stripping)
  */
-static size_t hitag_s_decode_manchester(
+static size_t hitag_s_decode_ac2k(
     const HitagSCapture* cap,
     uint8_t* out_data,
-    size_t max_bits) {
+    size_t max_bits,
+    size_t sof_bits) {
+
+    memset(out_data, 0, (max_bits + 7) / 8);
+
+    int lastbit = 0;
+    bool bSkip = false;
+    size_t total_bits = 0;
+    size_t sof_remaining = sof_bits;
+    size_t data_bits = 0;
+    bool first_period = true;
+
+    for(size_t i = 0; i < cap->edge_count && data_bits < max_bits; i++) {
+        if(cap->levels[i]) continue; /* skip HIGH entries, only use periods */
+
+        uint32_t rb = cap->durations[i];
+
+        if(first_period) {
+            first_period = false;
+            FURI_LOG_D(TAG, "AC2K: skip startup period %lu", (unsigned long)rb);
+            continue;
+        }
+
+        if(rb < HITAG_S_AC2K_GLITCH_US) continue;
+
+        if(rb >= HITAG_S_AC2K_THRESH_34_US) {
+            /* FOUR_HALF: one '0' bit */
+            lastbit = 0;
+            total_bits++;
+            if(sof_remaining > 0) {
+                sof_remaining--;
+            } else {
+                data_bits++;
+            }
+        } else if(rb >= HITAG_S_AC2K_THRESH_23_US) {
+            /* THREE_HALF: transition between 0 and 1 */
+            lastbit = !lastbit;
+            total_bits++;
+            if(sof_remaining > 0) {
+                sof_remaining--;
+            } else {
+                if(lastbit) {
+                    out_data[data_bits / 8] |= (1 << (7 - (data_bits % 8)));
+                }
+                data_bits++;
+            }
+            bSkip = (lastbit != 0);
+        } else {
+            /* TWO_HALF: within a '1' bit */
+            if(!bSkip) {
+                lastbit = 1;
+                total_bits++;
+                if(sof_remaining > 0) {
+                    sof_remaining--;
+                } else {
+                    out_data[data_bits / 8] |= (1 << (7 - (data_bits % 8)));
+                    data_bits++;
+                }
+            }
+            bSkip = !bSkip;
+        }
+    }
+
+    FURI_LOG_I(TAG, "AC2K: %d edges -> %d bits (%d SOF + %d data)",
+        (int)cap->edge_count, (int)total_bits,
+        (int)sof_bits, (int)data_bits);
+
+    if(data_bits > 0) {
+        size_t bytes = (data_bits + 7) / 8;
+        if(bytes >= 4) {
+            FURI_LOG_I(TAG, "AC2K data: %02X %02X %02X %02X (%d bits)",
+                out_data[0], out_data[1], out_data[2], out_data[3],
+                (int)data_bits);
+        }
+    }
+
+    return data_bits;
+}
+
+/**
+ * @brief Decode MC4K Manchester response (used after SELECT)
+ *
+ * MC4K at 125kHz: SHORT ~128µs (half-bit), LONG ~256µs (full-bit)
+ * Threshold at 192µs midpoint.
+ *
+ * Pre-processes edges: level=true → HIGH pulse (direct),
+ * level=false → LOW = period - prev HIGH.
+ *
+ * @param cap       Capture context with raw edges
+ * @param out_data  Output buffer for decoded bits (packed, MSB first)
+ * @param max_bits  Maximum data bits to decode (excluding SOF)
+ * @param sof_bits  Number of SOF bits to strip
+ * @return Number of decoded data bits (after SOF stripping)
+ */
+static size_t hitag_s_decode_mc4k(
+    const HitagSCapture* cap,
+    uint8_t* out_data,
+    size_t max_bits,
+    size_t sof_bits) {
     if(cap->edge_count < 4) return 0;
 
     memset(out_data, 0, (max_bits + 7) / 8);
 
-    /* Pre-process: fix level=false durations.
-     * TIM2 CH3 (level=true)  → HIGH pulse width (falling edge capture)
-     * TIM2 CH4 (level=false) → total period (rising edge with counter reset)
-     * For Manchester we need actual LOW pulse time = period - previous HIGH time.
-     */
+    /* Pre-process: compute actual HIGH and LOW pulse durations */
     static uint32_t durations[HITAG_S_MAX_EDGES];
     uint32_t last_high_dur = 0;
     for(size_t i = 0; i < cap->edge_count; i++) {
         if(cap->levels[i]) {
-            /* HIGH pulse — duration is correct */
             durations[i] = cap->durations[i];
             last_high_dur = cap->durations[i];
         } else {
-            /* Period — compute actual LOW time */
             if(last_high_dur > 0 && cap->durations[i] > last_high_dur) {
                 durations[i] = cap->durations[i] - last_high_dur;
             } else {
-                durations[i] = cap->durations[i]; /* fallback */
+                durations[i] = cap->durations[i];
             }
         }
     }
 
-    /* Auto-calibrate threshold from corrected durations */
-    uint32_t min_dur = UINT32_MAX;
-    uint32_t max_dur = 0;
-    size_t sample_count = (cap->edge_count < 20) ? cap->edge_count : 20;
+    uint32_t threshold = HITAG_S_MC4K_THRESHOLD_US;
+    size_t start_idx = 3;
 
-    /* Skip first edge (may be garbage from timer startup) */
-    size_t start_idx = 1;
-    for(size_t i = start_idx; i < sample_count; i++) {
-        uint32_t d = durations[i];
-        if(d < 20) continue; /* ignore glitches */
-        if(d < min_dur) min_dur = d;
-        if(d > max_dur) max_dur = d;
-    }
-
-    if(min_dur == 0 || min_dur == UINT32_MAX || max_dur == 0) {
-        FURI_LOG_W(TAG, "MC: calibration failed (no valid durations)");
-        return 0;
-    }
-
-    uint32_t threshold;
-    uint32_t mid = (min_dur + max_dur) / 2;
-    uint32_t sum_short = 0;
-    size_t count_short = 0;
-
-    for(size_t i = start_idx; i < sample_count; i++) {
-        uint32_t d = durations[i];
-        if(d < 20) continue;
-        if(d < mid) {
-            sum_short += d;
-            count_short++;
-        }
-    }
-
-    if(count_short == 0) {
-        threshold = min_dur * 3 / 2;
-    } else {
-        threshold = (sum_short / count_short) * 3 / 2;
-    }
-
-    FURI_LOG_I(
-        TAG,
-        "MC cal: min=%lu max=%lu thr=%lu",
-        (unsigned long)min_dur,
-        (unsigned long)max_dur,
-        (unsigned long)threshold);
+    FURI_LOG_D(TAG, "MC4K: threshold=%lu, start_idx=%d",
+        (unsigned long)threshold, (int)start_idx);
 
     ManchesterState state = ManchesterStateStart1;
-    size_t bit_count = 0;
+    size_t sof_remaining = sof_bits;
+    size_t data_bits = 0;
+    size_t total_bits = 0;
 
-    for(size_t i = start_idx; i < cap->edge_count && bit_count < max_bits; i++) {
+    for(size_t i = start_idx; i < cap->edge_count && data_bits < max_bits; i++) {
         uint32_t dur = durations[i];
         bool level = cap->levels[i];
 
-        if(dur < 20) continue; /* skip glitches */
+        if(dur < HITAG_S_MC4K_GLITCH_US) continue;
 
         bool is_short = (dur < threshold);
 
-        /* Build ManchesterEvent from level + short/long */
         ManchesterEvent event;
         if(is_short) {
             event = level ? ManchesterEventShortHigh : ManchesterEventShortLow;
@@ -234,75 +294,66 @@ static size_t hitag_s_decode_manchester(
             event = level ? ManchesterEventLongHigh : ManchesterEventLongLow;
         }
 
-        /* Advance state machine */
         ManchesterState next_state;
         bool data_bit;
 
         if(manchester_advance(state, event, &next_state, &data_bit)) {
-            /* A complete bit was decoded */
-            if(data_bit) {
-                out_data[bit_count / 8] |= (1 << (7 - (bit_count % 8)));
+            total_bits++;
+            if(sof_remaining > 0) {
+                sof_remaining--;
+            } else {
+                if(data_bit) {
+                    out_data[data_bits / 8] |= (1 << (7 - (data_bits % 8)));
+                }
+                data_bits++;
             }
-            bit_count++;
         }
 
         state = next_state;
     }
 
-    FURI_LOG_I(
-        TAG,
-        "MC: %d edges -> %d bits (thr=%lu)",
-        (int)cap->edge_count,
-        (int)bit_count,
-        (unsigned long)threshold);
+    FURI_LOG_I(TAG, "MC4K: %d edges -> %d bits (%d SOF + %d data)",
+        (int)cap->edge_count, (int)total_bits,
+        (int)sof_bits, (int)data_bits);
 
-    /* Log first few decoded bytes for debugging */
-    if(bit_count > 0) {
-        size_t bytes = (bit_count + 7) / 8;
+    if(data_bits > 0) {
+        size_t bytes = (data_bits + 7) / 8;
         if(bytes >= 4) {
-            FURI_LOG_I(
-                TAG,
-                "MC data: %02X %02X %02X %02X (%d bits)",
-                out_data[0],
-                out_data[1],
-                out_data[2],
-                out_data[3],
-                (int)bit_count);
+            FURI_LOG_I(TAG, "MC4K data: %02X %02X %02X %02X (%d bits)",
+                out_data[0], out_data[1], out_data[2], out_data[3],
+                (int)data_bits);
         }
     }
 
-    return bit_count;
+    return data_bits;
 }
+
+/* Decode mode for send_receive */
+typedef enum {
+    HitagSRxAC2K = 0, /* AC2K anti-collision (UID response) */
+    HitagSRxMC4K = 1, /* MC4K Manchester (data exchange) */
+} HitagSRxMode;
 
 /**
  * @brief Combined send + receive with proper sequencing
  *
- * Sequence:
- * 1. Send BPLM command in critical section (interrupts off)
- * 2. After TX, reset capture state and start capture
- * 3. Wait for tag response
- * 4. Stop capture and decode Manchester
- *
- * Note: We start capture AFTER TX because TIM2 hardware captures occur
- * even during critical sections (they queue in capture registers).
- * Starting capture before TX would collect garbage edges from BPLM gaps.
- *
- * The ~200µs tag response delay gives us enough time to start capture
- * after TX before any response edges arrive.
- *
- * @param tx_data    BPLM data to send (packed bits, MSB first)
- * @param tx_bits    Number of bits to send
- * @param rx_data    Buffer for received bits
- * @param rx_max_bits Maximum bits to receive
+ * @param tx_data     BPLM data to send (packed bits, MSB first)
+ * @param tx_bits     Number of bits to send
+ * @param rx_data     Buffer for received bits
+ * @param rx_max_bits Maximum data bits to receive (excluding SOF)
  * @param rx_timeout_us How long to wait for response after TX
- * @return Number of decoded bits received
+ * @param rx_mode     Decode mode (AC2K for UID, MC4K for data exchange)
+ * @param sof_bits    Number of SOF bits to strip from response
+ * @return Number of decoded data bits received
  */
 static size_t hitag_s_send_receive(
     const uint8_t* tx_data,
     size_t tx_bits,
     uint8_t* rx_data,
     size_t rx_max_bits,
-    uint32_t rx_timeout_us) {
+    uint32_t rx_timeout_us,
+    HitagSRxMode rx_mode,
+    size_t sof_bits) {
 
     /* Send command in critical section (interrupts disabled = precise timing) */
     FURI_CRITICAL_ENTER();
@@ -327,9 +378,10 @@ static size_t hitag_s_send_receive(
 
     FURI_LOG_I(
         TAG,
-        "RX: %d edges%s",
+        "RX: %d edges%s (mode=%s)",
         (int)hs_capture.edge_count,
-        hs_capture.overflow ? " [OVERFLOW]" : "");
+        hs_capture.overflow ? " [OVERFLOW]" : "",
+        rx_mode == HitagSRxAC2K ? "AC2K" : "MC4K");
 
     /* Log raw edges for debugging (first 20) */
     size_t log_count = (hs_capture.edge_count < 20) ? hs_capture.edge_count : 20;
@@ -342,8 +394,13 @@ static size_t hitag_s_send_receive(
             (unsigned long)hs_capture.durations[i]);
     }
 
-    /* Decode Manchester */
-    size_t bits = hitag_s_decode_manchester(&hs_capture, rx_data, rx_max_bits);
+    /* Decode using appropriate decoder */
+    size_t bits;
+    if(rx_mode == HitagSRxAC2K) {
+        bits = hitag_s_decode_ac2k(&hs_capture, rx_data, rx_max_bits, sof_bits);
+    } else {
+        bits = hitag_s_decode_mc4k(&hs_capture, rx_data, rx_max_bits, sof_bits);
+    }
 
     return bits;
 }
@@ -390,45 +447,59 @@ static void pack_bits(uint8_t* buf, size_t* bit_pos, uint32_t value, size_t n_bi
     *bit_pos += n_bits;
 }
 
-/* Receive timeout for 32-bit response:
- * Tag responds at fc/64 = 512µs/bit → 32 bits = 16.4ms + ~200µs delay + margin
+/* --- Protocol mode tracking ---
+ * The UID_REQ command determines the protocol mode for the session.
+ * STD mode has simpler framing (SOF=1), ADV has longer SOF and CRC on responses.
  */
-#define HITAG_S_RX_TIMEOUT_32BIT 25000
+typedef struct {
+    uint8_t cmd_5bit;   /* 5-bit command value for pack_bits */
+    const char* name;
+    size_t uid_sof;     /* SOF bits in AC2K UID response */
+    size_t data_sof;    /* SOF bits in MC4K data exchange */
+} HitagSProtoMode;
 
-/* Receive timeout for 2-bit ACK:
- * ~200µs delay + 2 × 512µs + margin
- */
-#define HITAG_S_RX_TIMEOUT_ACK   5000
+static const HitagSProtoMode proto_modes[] = {
+    {0x06, "STD",  1, 1},  /* UID_REQ_STD (00110): SOF=1 everywhere */
+    {0x18, "ADV2", 3, 6},  /* UID_REQ_ADV2 (11000): SOF=3 for UID, 6 for data */
+};
+static size_t active_mode_idx = 0;
+
+static inline size_t hitag_s_data_sof(void) {
+    return proto_modes[active_mode_idx].data_sof;
+}
+
+/* Receive timeouts */
+#define HITAG_S_RX_TIMEOUT_UID    25000  /* AC2K UID response (~18ms + margin) */
+#define HITAG_S_RX_TIMEOUT_DATA   15000  /* MC4K 32-bit response (~10ms + margin) */
+#define HITAG_S_RX_TIMEOUT_ACK     5000  /* MC4K ACK response (~2.5ms + margin) */
 
 HitagSResult hitag_s_uid_request(uint32_t* uid) {
-    /* Try UID_REQ_STD (Basic mode) = 11000 (5 bits) = 0x18 first,
-     * then UID_REQ_ADV1 (Advanced mode) = 11001 (5 bits) = 0x19 */
-    static const struct {
-        uint8_t cmd_val;
-        const char* name;
-    } uid_cmds[] = {
-        {0x18, "UID_REQ_STD"},
-        {0x19, "UID_REQ_ADV1"},
-    };
-
+    /* Try STD mode first (simplest framing), then ADV2 (which we know works) */
     for(size_t c = 0; c < 2; c++) {
         uint8_t cmd[1] = {0};
         size_t bit_pos = 0;
-        pack_bits(cmd, &bit_pos, uid_cmds[c].cmd_val, 5);
+        pack_bits(cmd, &bit_pos, proto_modes[c].cmd_5bit, 5);
 
-        FURI_LOG_I(TAG, "TX: %s (5 bits)", uid_cmds[c].name);
+        FURI_LOG_I(TAG, "TX: UID_REQ_%s (5 bits, val=0x%02X)",
+            proto_modes[c].name, proto_modes[c].cmd_5bit);
 
         uint8_t rx[4] = {0};
-        size_t rx_bits = hitag_s_send_receive(cmd, 5, rx, 32, HITAG_S_RX_TIMEOUT_32BIT);
+        size_t rx_bits = hitag_s_send_receive(
+            cmd, 5, rx, 32,
+            HITAG_S_RX_TIMEOUT_UID,
+            HitagSRxAC2K,
+            proto_modes[c].uid_sof);
 
         if(rx_bits >= 32) {
             *uid = ((uint32_t)rx[0] << 24) | ((uint32_t)rx[1] << 16) |
                    ((uint32_t)rx[2] << 8) | (uint32_t)rx[3];
-            FURI_LOG_I(TAG, "UID: %08lX (via %s)", (unsigned long)*uid, uid_cmds[c].name);
+            active_mode_idx = c;
+            FURI_LOG_I(TAG, "UID: %08lX (via %s mode)",
+                (unsigned long)*uid, proto_modes[c].name);
             return HitagSResultOk;
         }
 
-        FURI_LOG_W(TAG, "%s: only %d bits", uid_cmds[c].name, (int)rx_bits);
+        FURI_LOG_W(TAG, "%s: only %d data bits", proto_modes[c].name, (int)rx_bits);
         furi_delay_us(HITAG_S_T_WAIT_SC_US);
     }
 
@@ -452,9 +523,13 @@ HitagSResult hitag_s_select(uint32_t uid, uint32_t* config) {
 
     furi_delay_us(HITAG_S_T_WAIT_SC_US);
 
-    /* Combined send + receive */
-    uint8_t rx[4] = {0};
-    size_t rx_bits = hitag_s_send_receive(cmd, 45, rx, 32, HITAG_S_RX_TIMEOUT_32BIT);
+    /* Combined send + receive — MC4K response with config page */
+    uint8_t rx[5] = {0}; /* 32 config + possibly 8 CRC in ADV mode */
+    size_t rx_bits = hitag_s_send_receive(
+        cmd, 45, rx, 40,
+        HITAG_S_RX_TIMEOUT_DATA,
+        HitagSRxMC4K,
+        hitag_s_data_sof());
 
     if(rx_bits < 32) {
         FURI_LOG_W(TAG, "SELECT: only %d bits received", (int)rx_bits);
@@ -487,9 +562,13 @@ HitagSResult hitag_s_8268_authenticate(uint32_t password) {
 
     furi_delay_us(HITAG_S_T_WAIT_SC_US);
 
-    /* Combined send + receive for ACK */
+    /* Combined send + receive for ACK — MC4K */
     uint8_t ack[1] = {0};
-    size_t ack_bits = hitag_s_send_receive(cmd, 20, ack, 8, HITAG_S_RX_TIMEOUT_ACK);
+    size_t ack_bits = hitag_s_send_receive(
+        cmd, 20, ack, 8,
+        HITAG_S_RX_TIMEOUT_ACK,
+        HitagSRxMC4K,
+        hitag_s_data_sof());
 
     if(ack_bits < 2) {
         FURI_LOG_W(TAG, "AUTH step 1: no ACK (%d bits)", (int)ack_bits);
@@ -518,9 +597,13 @@ HitagSResult hitag_s_8268_authenticate(uint32_t password) {
 
     furi_delay_us(HITAG_S_T_WAIT_SC_US);
 
-    /* Combined send + receive for ACK */
+    /* Combined send + receive for ACK — MC4K */
     uint8_t ack2[1] = {0};
-    size_t ack2_bits = hitag_s_send_receive(pwd_frame, 40, ack2, 8, HITAG_S_RX_TIMEOUT_ACK);
+    size_t ack2_bits = hitag_s_send_receive(
+        pwd_frame, 40, ack2, 8,
+        HITAG_S_RX_TIMEOUT_ACK,
+        HitagSRxMC4K,
+        hitag_s_data_sof());
 
     if(ack2_bits < 2) {
         FURI_LOG_W(TAG, "AUTH step 2: no ACK (%d bits)", (int)ack2_bits);
@@ -551,9 +634,13 @@ HitagSResult hitag_s_write_page(uint8_t page, uint32_t data) {
 
     furi_delay_us(HITAG_S_T_WAIT_SC_US);
 
-    /* Combined send + receive for ACK */
+    /* Combined send + receive for ACK — MC4K */
     uint8_t ack[1] = {0};
-    size_t ack_bits = hitag_s_send_receive(cmd, 20, ack, 8, HITAG_S_RX_TIMEOUT_ACK);
+    size_t ack_bits = hitag_s_send_receive(
+        cmd, 20, ack, 8,
+        HITAG_S_RX_TIMEOUT_ACK,
+        HitagSRxMC4K,
+        hitag_s_data_sof());
 
     if(ack_bits < 2) {
         FURI_LOG_W(TAG, "WRITE_PAGE addr=%d: no ACK", page);
@@ -584,7 +671,10 @@ HitagSResult hitag_s_write_page(uint8_t page, uint32_t data) {
     /* Combined send + receive — timeout includes programming time */
     uint8_t ack2[1] = {0};
     size_t ack2_bits = hitag_s_send_receive(
-        data_frame, 40, ack2, 8, HITAG_S_T_PROG_US + HITAG_S_RX_TIMEOUT_ACK);
+        data_frame, 40, ack2, 8,
+        HITAG_S_T_PROG_US + HITAG_S_RX_TIMEOUT_ACK,
+        HitagSRxMC4K,
+        hitag_s_data_sof());
 
     if(ack2_bits < 2) {
         /* Some tags don't ACK after programming — treat as OK */
@@ -616,9 +706,13 @@ HitagSResult hitag_s_read_page(uint8_t page, uint32_t* data) {
 
     furi_delay_us(HITAG_S_T_WAIT_SC_US);
 
-    /* Combined send + receive */
+    /* Combined send + receive — MC4K response with page data */
     uint8_t rx[4] = {0};
-    size_t rx_bits = hitag_s_send_receive(cmd, 20, rx, 32, HITAG_S_RX_TIMEOUT_32BIT);
+    size_t rx_bits = hitag_s_send_receive(
+        cmd, 20, rx, 32,
+        HITAG_S_RX_TIMEOUT_DATA,
+        HitagSRxMC4K,
+        hitag_s_data_sof());
 
     if(rx_bits < 32) {
         FURI_LOG_W(TAG, "READ_PAGE addr=%d: only %d bits received", page, (int)rx_bits);
