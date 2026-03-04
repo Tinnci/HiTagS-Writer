@@ -4,6 +4,7 @@ App(
     apptype=FlipperAppType.EXTERNAL,
     targets=["f7"],
     entry_point="hitags_writer_app",
+    sources=["*.c", "scenes/*.c"],
     stack_size=4 * 1024,
     order=20,
     fap_version="0.3",

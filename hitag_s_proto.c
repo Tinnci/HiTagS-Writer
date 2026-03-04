@@ -257,7 +257,8 @@ static size_t hitag_s_decode_mc4k(
     const HitagSCapture* cap,
     uint8_t* out_data,
     size_t max_bits,
-    size_t sof_bits) {
+    size_t sof_bits,
+    uint32_t threshold) {
     if(cap->edge_count < 4) return 0;
 
     memset(out_data, 0, (max_bits + 7) / 8);
@@ -278,11 +279,11 @@ static size_t hitag_s_decode_mc4k(
         }
     }
 
-    uint32_t threshold = HITAG_S_MC4K_THRESHOLD_US;
+    uint32_t glitch_min = (threshold > 200) ? 80 : HITAG_S_MC4K_GLITCH_US;
     size_t start_idx = 3;
 
-    FURI_LOG_D(TAG, "MC4K: threshold=%lu, start_idx=%d",
-        (unsigned long)threshold, (int)start_idx);
+    FURI_LOG_D(TAG, "MC: threshold=%lu, glitch=%lu, start_idx=%d",
+        (unsigned long)threshold, (unsigned long)glitch_min, (int)start_idx);
 
     ManchesterState state = ManchesterStateStart1;
     size_t sof_remaining = sof_bits;
@@ -293,7 +294,7 @@ static size_t hitag_s_decode_mc4k(
         uint32_t dur = durations[i];
         bool level = cap->levels[i];
 
-        if(dur < HITAG_S_MC4K_GLITCH_US) continue;
+        if(dur < glitch_min) continue;
 
         bool is_short = (dur < threshold);
 
@@ -345,8 +346,9 @@ static size_t hitag_s_decode_mc4k(
 
 /* Decode mode for send_receive */
 typedef enum {
-    HitagSRxAC2K = 0, /* AC2K anti-collision (UID response) */
-    HitagSRxMC4K = 1, /* MC4K Manchester (data exchange) */
+    HitagSRxAC2K = 0, /* AC2K anti-collision (UID response) - interval based */
+    HitagSRxMC4K = 1, /* MC4K Manchester 4kbit/s (data exchange, threshold 192µs) */
+    HitagSRxMC2K = 2, /* MC2K Manchester 2kbit/s (UID response, threshold 384µs) */
 } HitagSRxMode;
 
 /**
@@ -414,7 +416,8 @@ static size_t hitag_s_send_receive(
     if(rx_mode == HitagSRxAC2K) {
         bits = hitag_s_decode_ac2k(&hs_capture, rx_data, rx_max_bits, sof_bits);
     } else {
-        bits = hitag_s_decode_mc4k(&hs_capture, rx_data, rx_max_bits, sof_bits);
+        uint32_t threshold = (rx_mode == HitagSRxMC2K) ? 384 : HITAG_S_MC4K_THRESHOLD_US;
+        bits = hitag_s_decode_mc4k(&hs_capture, rx_data, rx_max_bits, sof_bits, threshold);
     }
 
     return bits;
@@ -502,7 +505,7 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
         size_t rx_bits = hitag_s_send_receive(
             cmd, 5, rx, 32,
             HITAG_S_RX_TIMEOUT_UID,
-            HitagSRxAC2K,
+            HitagSRxMC2K,
             proto_modes[c].uid_sof);
 
         if(rx_bits >= 32) {
