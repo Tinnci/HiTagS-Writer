@@ -9,8 +9,10 @@ void hitags_writer_scene_write_fail_on_enter(void* context) {
     HitagSApp* app = context;
     Widget* widget = app->widget;
 
+    widget_add_icon_element(widget, 83, 22, &I_WarningDolphinFlip_45x42);
+
     widget_add_string_element(
-        widget, 64, 5, AlignCenter, AlignTop, FontPrimary, "Write Failed!");
+        widget, 40, 5, AlignCenter, AlignTop, FontPrimary, "Write Failed!");
 
     const char* error_msg;
     switch(app->last_result) {
@@ -18,7 +20,7 @@ void hitags_writer_scene_write_fail_on_enter(void* context) {
         error_msg = "No tag detected.\nPlace 8268 tag on\nFlipper's back.";
         break;
     case HitagSResultNack:
-        error_msg = "Tag rejected command.\nWrong password or\nnot a 8268 chip?";
+        error_msg = "Tag rejected\ncommand. Wrong pwd\nor not a 8268 chip?";
         break;
     case HitagSResultCrcError:
         error_msg = "CRC error in\ncommunication.";
@@ -29,7 +31,7 @@ void hitags_writer_scene_write_fail_on_enter(void* context) {
     }
 
     widget_add_string_multiline_element(
-        widget, 64, 22, AlignCenter, AlignTop, FontSecondary, error_msg);
+        widget, 40, 22, AlignCenter, AlignTop, FontSecondary, error_msg);
 
     widget_add_button_element(
         widget, GuiButtonTypeLeft, "Back", hitags_writer_widget_callback, app);

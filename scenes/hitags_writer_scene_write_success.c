@@ -9,12 +9,13 @@ void hitags_writer_scene_write_success_on_enter(void* context) {
     HitagSApp* app = context;
     Popup* popup = app->popup;
 
-    popup_set_header(popup, "Success!", 64, 10, AlignCenter, AlignTop);
+    popup_set_header(popup, "Success!", 97, 12, AlignCenter, AlignTop);
+    popup_set_icon(popup, 0, 9, &I_DolphinSuccess_91x55);
 
     char id_str[16];
     em4100_id_to_string(app->em4100_id, id_str);
     snprintf(app->text_store, sizeof(app->text_store), "EM4100 %s\nwritten to 8268", id_str);
-    popup_set_text(popup, app->text_store, 64, 30, AlignCenter, AlignTop);
+    popup_set_text(popup, app->text_store, 97, 25, AlignCenter, AlignTop);
 
     popup_set_context(popup, app);
     popup_set_callback(popup, hitags_writer_popup_timeout_callback);

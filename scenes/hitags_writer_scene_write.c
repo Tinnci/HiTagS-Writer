@@ -10,12 +10,13 @@ void hitags_writer_scene_write_on_enter(void* context) {
     Popup* popup = app->popup;
 
     /* Show non-blocking "Writing" popup with dolphin icon */
-    popup_set_header(popup, "Writing...", 64, 30, AlignCenter, AlignTop);
+    popup_set_header(popup, "Writing...", 89, 30, AlignCenter, AlignTop);
+    popup_set_icon(popup, 0, 3, &I_RFIDDolphinSend_97x61);
 
     char id_str[16];
     em4100_id_to_string(app->em4100_id, id_str);
     snprintf(app->text_store, sizeof(app->text_store), "EM4100: %s", id_str);
-    popup_set_text(popup, app->text_store, 64, 43, AlignCenter, AlignTop);
+    popup_set_text(popup, app->text_store, 89, 43, AlignCenter, AlignTop);
 
     view_dispatcher_switch_to_view(app->view_dispatcher, HitagSViewPopup);
     notification_message(app->notifications, &sequence_blink_start_magenta);

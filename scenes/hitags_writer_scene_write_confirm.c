@@ -26,6 +26,7 @@ void hitags_writer_scene_write_confirm_on_enter(void* context) {
 
     dialog_ex_set_header(dialog_ex, "Confirm Write", 64, 0, AlignCenter, AlignTop);
     dialog_ex_set_text(dialog_ex, app->text_store, 64, 16, AlignCenter, AlignTop);
+    dialog_ex_set_icon(dialog_ex, 0, 12, &I_NFC_manual_60x50);
     dialog_ex_set_left_button_text(dialog_ex, "Cancel");
     dialog_ex_set_right_button_text(dialog_ex, "Write");
     dialog_ex_set_result_callback(dialog_ex, hitags_writer_scene_write_confirm_callback);

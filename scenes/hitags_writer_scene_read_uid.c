@@ -10,8 +10,9 @@ void hitags_writer_scene_read_uid_on_enter(void* context) {
     Popup* popup = app->popup;
 
     /* Show scanning UI with dolphin icon */
-    popup_set_header(popup, "Reading...", 64, 20, AlignCenter, AlignTop);
-    popup_set_text(popup, "Place 8268 tag on\nFlipper's back", 64, 35, AlignCenter, AlignTop);
+    popup_set_header(popup, "Reading...", 89, 30, AlignCenter, AlignTop);
+    popup_set_text(popup, "Place 8268 tag on\nFlipper's back", 89, 43, AlignCenter, AlignTop);
+    popup_set_icon(popup, 0, 3, &I_NFC_manual_60x50);
 
     view_dispatcher_switch_to_view(app->view_dispatcher, HitagSViewPopup);
     notification_message(app->notifications, &sequence_blink_start_cyan);
@@ -34,8 +35,10 @@ bool hitags_writer_scene_read_uid_on_event(void* context, SceneManagerEvent even
             Widget* widget = app->widget;
             widget_reset(widget);
 
+            widget_add_icon_element(widget, 0, 9, &I_DolphinSuccess_91x55);
+
             widget_add_string_element(
-                widget, 64, 2, AlignCenter, AlignTop, FontPrimary, "Tag Found!");
+                widget, 97, 2, AlignCenter, AlignTop, FontPrimary, "Tag Found!");
 
             snprintf(
                 app->text_store,
@@ -47,7 +50,7 @@ bool hitags_writer_scene_read_uid_on_event(void* context, SceneManagerEvent even
                 (unsigned long)((app->tag_uid >> 8) & 0xFF),
                 (unsigned long)(app->tag_uid & 0xFF));
             widget_add_string_multiline_element(
-                widget, 64, 16, AlignCenter, AlignTop, FontSecondary, app->text_store);
+                widget, 97, 16, AlignCenter, AlignTop, FontSecondary, app->text_store);
 
             widget_add_button_element(
                 widget, GuiButtonTypeCenter, "OK", hitags_writer_widget_callback, app);
@@ -62,11 +65,13 @@ bool hitags_writer_scene_read_uid_on_event(void* context, SceneManagerEvent even
             Widget* widget = app->widget;
             widget_reset(widget);
 
+            widget_add_icon_element(widget, 83, 22, &I_WarningDolphinFlip_45x42);
+
             widget_add_string_element(
-                widget, 64, 5, AlignCenter, AlignTop, FontPrimary, "No Tag Found");
+                widget, 40, 5, AlignCenter, AlignTop, FontPrimary, "No Tag Found");
             widget_add_string_multiline_element(
                 widget,
-                64,
+                40,
                 25,
                 AlignCenter,
                 AlignTop,
