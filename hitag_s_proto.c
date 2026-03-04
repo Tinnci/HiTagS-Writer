@@ -286,7 +286,7 @@ static size_t hitag_s_decode_mc4k(
     FURI_LOG_D(TAG, "MC: threshold=%lu, glitch=%lu, start_idx=%d",
         (unsigned long)threshold, (unsigned long)glitch_min, (int)start_idx);
 
-    ManchesterState state = ManchesterStateStart1;
+    ManchesterState state = ManchesterStateMid1;
     size_t sof_remaining = sof_bits;
     size_t data_bits = 0;
     size_t total_bits = 0;
@@ -299,21 +299,24 @@ static size_t hitag_s_decode_mc4k(
 
         bool is_short = (dur < threshold);
 
+        /* Unleashed HAL convention: callback(true, dur) = HIGH pulse = UNLOAD.
+         * In Manchester encoding, UNLOAD = carrier-strong = "low" modulation level.
+         * So level=true maps to Low events, level=false maps to High events.
+         * This matches Unleashed's EM4100 decoder (protocol_em4100.c). */
         ManchesterEvent event;
         if(is_short) {
-            event = level ? ManchesterEventShortHigh : ManchesterEventShortLow;
+            event = level ? ManchesterEventShortLow : ManchesterEventShortHigh;
         } else {
-            event = level ? ManchesterEventLongHigh : ManchesterEventLongLow;
+            event = level ? ManchesterEventLongLow : ManchesterEventLongHigh;
         }
 
         ManchesterState next_state;
         bool data_bit;
 
         if(manchester_advance(state, event, &next_state, &data_bit)) {
-            /* Hitag S uses INVERTED Manchester polarity vs EM4100:
-             * Hitag S '0' = UNLOAD→LOAD = H→L (which EM4100 calls '1')
-             * Hitag S '1' = LOAD→UNLOAD = L→H (which EM4100 calls '0')
-             * So we invert the decoded bit to get correct Hitag S data. */
+            /* The state machine decodes EM4100-style Manchester where '1'=H→L.
+             * Hitag S uses opposite polarity: '1'=L→H (LOAD→UNLOAD).
+             * Invert the decoded bit to get correct Hitag S data. */
             data_bit = !data_bit;
             total_bits++;
             if(sof_remaining > 0) {
