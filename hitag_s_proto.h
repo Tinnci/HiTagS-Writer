@@ -91,15 +91,6 @@ uint8_t hitag_s_crc8(const uint8_t* data, size_t bits);
 void hitag_s_send_frame(const uint8_t* data, size_t bits);
 
 /**
- * @brief Receive Manchester-encoded response from tag
- * @param data      Buffer to store received bits (packed, MSB first)
- * @param max_bits  Maximum bits to receive
- * @param timeout_us Timeout in microseconds
- * @return Number of bits actually received, 0 on timeout/error
- */
-size_t hitag_s_receive_frame(uint8_t* data, size_t max_bits, uint32_t timeout_us);
-
-/**
  * @brief Start 125 kHz carrier for Hitag S communication
  */
 void hitag_s_field_on(void);
