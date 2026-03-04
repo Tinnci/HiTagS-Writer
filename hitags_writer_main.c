@@ -16,7 +16,7 @@ static int32_t hitags_writer_worker_thread(void* context) {
     HitagSApp* app = context;
 
     if(app->worker_op == HitagSWorkerWrite) {
-        /* Prepare EM4100 data for HiTag S pages */
+        /* Write: continuous retry until success or stopped */
         Em4100HitagData hitag_data;
         em4100_prepare_hitag_data(app->em4100_id, &hitag_data);
 
@@ -36,27 +36,80 @@ static int32_t hitags_writer_worker_thread(void* context) {
             app->em4100_id[3],
             app->em4100_id[4]);
 
-        app->last_result =
-            hitag_s_8268_write_sequence(app->password, pages, page_addrs, 3);
+        while(true) {
+            /* Check for stop signal */
+            uint32_t flags = furi_thread_flags_get();
+            if(flags & HITAGS_WORKER_FLAG_STOP) break;
 
-        if(app->last_result == HitagSResultOk) {
-            FURI_LOG_I(TAG, "Worker: Write successful!");
-            view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventWriteOk);
-        } else {
-            FURI_LOG_E(TAG, "Worker: Write failed (%d)", app->last_result);
-            view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventWriteFailed);
+            app->last_result =
+                hitag_s_8268_write_sequence(app->password, pages, page_addrs, 3);
+
+            if(app->last_result == HitagSResultOk) {
+                FURI_LOG_I(TAG, "Worker: Write successful!");
+                view_dispatcher_send_custom_event(
+                    app->view_dispatcher, HitagSEventWriteOk);
+                break;
+            }
+
+            /* Brief delay before retry, check stop flag */
+            uint32_t wait = furi_thread_flags_wait(
+                HITAGS_WORKER_FLAG_STOP, FuriFlagWaitAny, 200);
+            if(wait != (uint32_t)FuriFlagErrorTimeout) break;
         }
     } else if(app->worker_op == HitagSWorkerReadUid) {
-        FURI_LOG_I(TAG, "Worker: Reading UID...");
+        /* ReadUid: continuous scan until found or stopped */
+        FURI_LOG_I(TAG, "Worker: Scanning for UID...");
 
-        app->last_result = hitag_s_read_uid_sequence(&app->tag_uid);
+        while(true) {
+            uint32_t flags = furi_thread_flags_get();
+            if(flags & HITAGS_WORKER_FLAG_STOP) break;
 
-        if(app->last_result == HitagSResultOk) {
-            FURI_LOG_I(TAG, "Worker: UID=%08lX", (unsigned long)app->tag_uid);
-            view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventReadOk);
-        } else {
-            FURI_LOG_W(TAG, "Worker: UID read failed");
-            view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventReadFailed);
+            app->last_result = hitag_s_read_uid_sequence(&app->tag_uid);
+
+            if(app->last_result == HitagSResultOk) {
+                FURI_LOG_I(TAG, "Worker: UID=%08lX", (unsigned long)app->tag_uid);
+                view_dispatcher_send_custom_event(
+                    app->view_dispatcher, HitagSEventReadOk);
+                break;
+            }
+
+            uint32_t wait = furi_thread_flags_wait(
+                HITAGS_WORKER_FLAG_STOP, FuriFlagWaitAny, 100);
+            if(wait != (uint32_t)FuriFlagErrorTimeout) break;
+        }
+    } else if(app->worker_op == HitagSWorkerReadPages) {
+        /* ReadPages: continuous scan, read EM4100 data from tag */
+        FURI_LOG_I(TAG, "Worker: Scanning to read tag data...");
+
+        uint8_t page_addrs[3] = {1, 4, 5};
+
+        while(true) {
+            uint32_t flags = furi_thread_flags_get();
+            if(flags & HITAGS_WORKER_FLAG_STOP) break;
+
+            app->last_result = hitag_s_8268_read_sequence(
+                app->password, app->read_pages, page_addrs, 3, &app->tag_uid);
+
+            if(app->last_result == HitagSResultOk) {
+                /* Decode EM4100 ID from read data */
+                em4100_decode_hitag_data(
+                    app->read_pages[1], app->read_pages[2], app->read_id);
+                FURI_LOG_I(
+                    TAG,
+                    "Worker: Read EM4100 %02X:%02X:%02X:%02X:%02X",
+                    app->read_id[0],
+                    app->read_id[1],
+                    app->read_id[2],
+                    app->read_id[3],
+                    app->read_id[4]);
+                view_dispatcher_send_custom_event(
+                    app->view_dispatcher, HitagSEventReadOk);
+                break;
+            }
+
+            uint32_t wait = furi_thread_flags_wait(
+                HITAGS_WORKER_FLAG_STOP, FuriFlagWaitAny, 100);
+            if(wait != (uint32_t)FuriFlagErrorTimeout) break;
         }
     }
 
@@ -72,6 +125,8 @@ void hitags_writer_worker_start(HitagSApp* app, HitagSWorkerOp op) {
 
 void hitags_writer_worker_stop(HitagSApp* app) {
     if(app->worker_running) {
+        /* Signal worker to stop */
+        furi_thread_flags_set(furi_thread_get_id(app->worker_thread), HITAGS_WORKER_FLAG_STOP);
         furi_thread_join(app->worker_thread);
         app->worker_running = false;
     }
@@ -232,7 +287,7 @@ int32_t hitags_writer_app(void* p) {
 
     HitagSApp* app = hitags_writer_alloc();
 
-    FURI_LOG_I(TAG, "HiTagS Writer v0.2 starting...");
+    FURI_LOG_I(TAG, "HiTagS Writer v0.3 starting...");
 
     view_dispatcher_attach_to_gui(app->view_dispatcher, app->gui, ViewDispatcherTypeFullscreen);
     scene_manager_next_scene(app->scene_manager, HitagSSceneStart);

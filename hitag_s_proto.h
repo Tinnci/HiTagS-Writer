@@ -168,6 +168,22 @@ HitagSResult hitag_s_8268_write_sequence(
     const uint8_t* page_addrs,
     size_t page_count);
 
+/**
+ * @brief Full read sequence for 8268: UID request → SELECT → Auth → Read pages
+ * @param password    Authentication password
+ * @param pages       Array to store page data
+ * @param page_addrs  Array of page addresses to read
+ * @param page_count  Number of pages to read
+ * @param uid_out     Optional: pointer to store tag UID (may be NULL)
+ * @return HitagSResult
+ */
+HitagSResult hitag_s_8268_read_sequence(
+    uint32_t password,
+    uint32_t* pages,
+    const uint8_t* page_addrs,
+    size_t page_count,
+    uint32_t* uid_out);
+
 #ifdef __cplusplus
 }
 #endif

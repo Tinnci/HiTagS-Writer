@@ -678,3 +678,55 @@ HitagSResult hitag_s_8268_write_sequence(
     hitag_s_field_off();
     return HitagSResultOk;
 }
+
+HitagSResult hitag_s_8268_read_sequence(
+    uint32_t password,
+    uint32_t* pages,
+    const uint8_t* page_addrs,
+    size_t page_count,
+    uint32_t* uid_out) {
+    uint32_t uid = 0;
+    uint32_t config = 0;
+
+    hitag_s_field_on();
+
+    /* Step 1: UID request */
+    HitagSResult result = hitag_s_uid_request(&uid);
+    if(result != HitagSResultOk) {
+        FURI_LOG_E(TAG, "Read sequence: UID request failed");
+        hitag_s_field_off();
+        return result;
+    }
+
+    if(uid_out) *uid_out = uid;
+
+    /* Step 2: SELECT */
+    result = hitag_s_select(uid, &config);
+    if(result != HitagSResultOk) {
+        FURI_LOG_E(TAG, "Read sequence: SELECT failed");
+        hitag_s_field_off();
+        return result;
+    }
+
+    /* Step 3: Authenticate */
+    result = hitag_s_8268_authenticate(password);
+    if(result != HitagSResultOk) {
+        FURI_LOG_E(TAG, "Read sequence: Authentication failed");
+        hitag_s_field_off();
+        return result;
+    }
+
+    /* Step 4: Read pages */
+    for(size_t i = 0; i < page_count; i++) {
+        result = hitag_s_read_page(page_addrs[i], &pages[i]);
+        if(result != HitagSResultOk) {
+            FURI_LOG_E(TAG, "Read sequence: Read page %d failed", page_addrs[i]);
+            hitag_s_field_off();
+            return result;
+        }
+    }
+
+    FURI_LOG_I(TAG, "Read sequence: All %d pages read successfully!", (int)page_count);
+    hitag_s_field_off();
+    return HitagSResultOk;
+}

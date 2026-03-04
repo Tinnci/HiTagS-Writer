@@ -46,6 +46,9 @@
 /* Worker thread stack size */
 #define HITAGS_WRITER_WORKER_STACK_SIZE (2 * 1024)
 
+/* Worker stop flag — checked by continuous scan loop */
+#define HITAGS_WORKER_FLAG_STOP (1UL << 0)
+
 /* --- Custom Events --- */
 typedef enum {
     HitagSEventNext = 100,
@@ -73,6 +76,7 @@ typedef enum {
     HitagSWorkerIdle,
     HitagSWorkerWrite,
     HitagSWorkerReadUid,
+    HitagSWorkerReadPages,
 } HitagSWorkerOp;
 
 /* --- Main App Structure --- */
@@ -104,6 +108,8 @@ struct HitagSApp {
 
     /* Working data */
     uint8_t em4100_id[EM4100_ID_SIZE]; /**< Target EM4100 ID to write */
+    uint8_t read_id[EM4100_ID_SIZE];   /**< Last read EM4100 ID from tag */
+    uint32_t read_pages[3];            /**< Last read page data [config, data_hi, data_lo] */
     uint32_t tag_uid;                  /**< Last read tag UID */
     uint32_t password;                 /**< Authentication password */
     HitagSResult last_result;          /**< Last operation result */

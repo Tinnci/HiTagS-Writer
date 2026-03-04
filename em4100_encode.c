@@ -107,6 +107,52 @@ void em4100_prepare_hitag_data(const uint8_t* id_bytes, Em4100HitagData* out_dat
         (unsigned long)out_data->data_lo);
 }
 
+bool em4100_decode_hitag_data(uint32_t data_hi, uint32_t data_lo, uint8_t* id_bytes) {
+    /* Reconstruct the 64-bit EM4100 frame from pages 4 and 5 */
+    uint64_t frame = ((uint64_t)data_hi << 32) | (uint64_t)data_lo;
+
+    /* EM4100 frame format (64 bits):
+     * [9 header 1s] [row9: 4data+1parity] ... [row0: 4data+1parity] [4 col parity] [1 stop]
+     * Total: 9 + 10*5 + 4 + 1 = 64 bits
+     *
+     * Verify header (top 9 bits should all be 1) */
+    if((frame >> 55) != 0x1FF) {
+        FURI_LOG_W(TAG, "EM4100 decode: invalid header %03llX", (unsigned long long)(frame >> 55));
+        memset(id_bytes, 0, 5);
+        return false;
+    }
+
+    /* Extract 40 data bits: skip header, extract 4 data bits per row, skip parity */
+    uint64_t data_40 = 0;
+    for(int row = EM41XX_LINES - 1; row >= 0; row--) {
+        /* Each row is 5 bits (4 data + 1 parity), rows stored MSB-row first after header
+         * Bit position: 55 - (EM41XX_LINES - 1 - row) * 5 - 1 ... for 4 data bits */
+        int row_start = 55 - (EM41XX_LINES - 1 - row) * 5 - 1; /* first data bit of row */
+        uint8_t nibble = 0;
+        for(int b = 0; b < EM41XX_COLUMNS; b++) {
+            nibble <<= 1;
+            nibble |= (frame >> (row_start - b)) & 1;
+        }
+        data_40 |= ((uint64_t)nibble << (row * 4));
+    }
+
+    /* Convert 40-bit value to 5 bytes */
+    for(int i = 0; i < 5; i++) {
+        id_bytes[i] = (uint8_t)(data_40 >> (32 - i * 8));
+    }
+
+    FURI_LOG_I(
+        TAG,
+        "Decoded EM4100: %02X:%02X:%02X:%02X:%02X",
+        id_bytes[0],
+        id_bytes[1],
+        id_bytes[2],
+        id_bytes[3],
+        id_bytes[4]);
+
+    return true;
+}
+
 void em4100_id_to_string(const uint8_t* id_bytes, char* out_str) {
     snprintf(
         out_str,

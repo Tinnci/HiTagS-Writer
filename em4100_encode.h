@@ -50,6 +50,19 @@ void em4100_prepare_hitag_data(const uint8_t* id_bytes, Em4100HitagData* out_dat
 void em4100_id_to_string(const uint8_t* id_bytes, char* out_str);
 
 /**
+ * @brief Decode EM4100 ID from HiTag S page data (pages 4 and 5)
+ *
+ * Extracts the 40-bit EM4100 ID from the 64-bit Manchester frame
+ * stored in the tag's data pages.
+ *
+ * @param data_hi   Page 4 (upper 32 bits of EM4100 frame)
+ * @param data_lo   Page 5 (lower 32 bits of EM4100 frame)
+ * @param id_bytes  Output: 5 bytes of EM4100 ID
+ * @return true if valid EM4100 data with correct parity
+ */
+bool em4100_decode_hitag_data(uint32_t data_hi, uint32_t data_lo, uint8_t* id_bytes);
+
+/**
  * @brief Convert hex string "XXXXXXXXXX" to 5 EM4100 ID bytes
  * @param hex_str   10-character hex string
  * @param id_bytes  Output 5 bytes

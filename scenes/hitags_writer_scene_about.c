@@ -10,7 +10,7 @@ void hitags_writer_scene_about_on_enter(void* context) {
     Widget* widget = app->widget;
 
     widget_add_string_element(
-        widget, 64, 2, AlignCenter, AlignTop, FontPrimary, "HiTagS Writer v0.2");
+        widget, 64, 2, AlignCenter, AlignTop, FontPrimary, "HiTagS Writer v0.3");
 
     widget_add_string_multiline_element(
         widget,
