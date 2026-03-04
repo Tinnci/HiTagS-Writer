@@ -10,7 +10,6 @@
 #include "em4100_encode.h"
 #include <furi.h>
 #include <furi_hal.h>
-#include <toolbox/manchester_decoder.h>
 
 #define TAG "HitagS"
 
@@ -242,16 +241,27 @@ static size_t hitag_s_decode_ac2k(
 /**
  * @brief Decode MC4K Manchester response (used after SELECT)
  *
- * MC4K at 125kHz: SHORT ~128µs (half-bit), LONG ~256µs (full-bit)
- * Threshold at 192µs midpoint.
+ * MC4K at 125kHz: half-bit = 128µs (16 × T0), full-bit = 256µs (32 × T0)
  *
- * Pre-processes edges: level=true → HIGH pulse (direct),
- * level=false → LOW = period - prev HIGH.
+ * Algorithm: Half-period tracking decoder.
+ * Verified via Python simulation (sim_mc4k_final.py) against all bit patterns.
+ *
+ * MC4K encoding (Hitag S / IEEE 802.3 convention):
+ *   bit 0: tag UNLOAD(h) LOAD(h) → COMP1: HIGH(h) LOW(h)  → 2nd half = LOW
+ *   bit 1: tag LOAD(h) UNLOAD(h) → COMP1: LOW(h)  HIGH(h) → 2nd half = HIGH
+ *
+ * Steps:
+ * 1. Extract HIGH/LOW pulse pairs from capture events
+ * 2. First pair is initial carrier → skip HIGH, keep LOW as SOF start
+ * 3. Classify each pulse as SHORT (1 half-period) or LONG (2 half-periods)
+ * 4. Build half-period level stream, pair up
+ * 5. Bit value = 1 if second half is HIGH, 0 if LOW
  *
  * @param cap       Capture context with raw edges
  * @param out_data  Output buffer for decoded bits (packed, MSB first)
  * @param max_bits  Maximum data bits to decode (excluding SOF)
  * @param sof_bits  Number of SOF bits to strip
+ * @param threshold Midpoint between SHORT and LONG pulse (µs)
  * @return Number of decoded data bits (after SOF stripping)
  */
 static size_t hitag_s_decode_mc4k(
@@ -264,88 +274,108 @@ static size_t hitag_s_decode_mc4k(
 
     memset(out_data, 0, (max_bits + 7) / 8);
 
-    /* Pre-process: compute actual HIGH and LOW pulse durations */
-    static uint32_t durations[HITAG_S_MAX_EDGES];
-    uint32_t last_high_dur = 0;
-    for(size_t i = 0; i < cap->edge_count; i++) {
-        if(cap->levels[i]) {
-            durations[i] = cap->durations[i];
-            last_high_dur = cap->durations[i];
-        } else {
-            if(last_high_dur > 0 && cap->durations[i] > last_high_dur) {
-                durations[i] = cap->durations[i] - last_high_dur;
-            } else {
-                durations[i] = cap->durations[i];
-            }
-        }
-    }
-
     uint32_t glitch_min = (threshold > 200) ? 80 : HITAG_S_MC4K_GLITCH_US;
 
-    /* Start from index 0: the startup period event (typically index 0, level=false)
-     * has unpredictable duration but simply causes a RESET in the state machine
-     * (Mid1→Mid1 = same state → reset). This is harmless and avoids losing
-     * the first valid capture pair which contains the SOF bit. */
-    size_t start_idx = 0;
+    FURI_LOG_D(TAG, "MC: threshold=%lu, glitch=%lu",
+        (unsigned long)threshold, (unsigned long)glitch_min);
 
-    FURI_LOG_D(TAG, "MC: threshold=%lu, glitch=%lu, start_idx=%d",
-        (unsigned long)threshold, (unsigned long)glitch_min, (int)start_idx);
+    /* --- Step 1-2: Extract pulse sequence from capture events ---
+     * CC3 (level=true):  HIGH pulse duration (COMP1 HIGH time)
+     * CC4 (level=false): period (rising-to-rising)
+     * Each CC3/CC4 pair gives: HIGH_dur and LOW_dur = period - HIGH_dur.
+     *
+     * First pair is carrier→SOF transition:
+     *   HIGH_dur = large (carrier time, skip)
+     *   LOW_dur = first half of SOF bit '1' (keep)
+     */
 
-    ManchesterState state = ManchesterStateMid1;
-    size_t sof_remaining = sof_bits;
-    size_t data_bits = 0;
-    size_t total_bits = 0;
+    /* Half-period buffer: stores level (true=HIGH, false=LOW) for each half-period */
+#define MC4K_MAX_HALF_PERIODS ((HITAG_S_MAX_EDGES / 2) * 3)
+    bool hp_levels[MC4K_MAX_HALF_PERIODS];
+    size_t hp_count = 0;
+    bool started = false;
+    uint32_t last_high_dur = 0;
 
-    for(size_t i = start_idx; i < cap->edge_count && data_bits < max_bits; i++) {
-        uint32_t dur = durations[i];
+    for(size_t i = 0; i < cap->edge_count; i++) {
         bool level = cap->levels[i];
+        uint32_t dur = cap->durations[i];
 
-        if(dur < glitch_min) continue;
-
-        bool is_short = (dur < threshold);
-
-        /* HAL capture: callback(true, dur) = HIGH pulse (UNLOAD = carrier strong).
-         * After preprocessing, level=false entries hold LOW pulse duration.
-         *
-         * Manchester state machine convention (verified with transition table):
-         *   level=true  (HIGH/UNLOAD pulse) → High events
-         *   level=false (LOW/LOAD pulse)    → Low events
-         *
-         * This produces correct state transitions at all bit boundaries.
-         * Verified: Hitag S MC4K uses same Manchester polarity as EM4100
-         * (PM3 hitag_common.c confirms: bit '1' = LOAD→UNLOAD = L→H,
-         *  state machine Mid1→data=TRUE corresponds to L→H). */
-        ManchesterEvent event;
-        if(is_short) {
-            event = level ? ManchesterEventShortHigh : ManchesterEventShortLow;
-        } else {
-            event = level ? ManchesterEventLongHigh : ManchesterEventLongLow;
+        if(level) {
+            /* CC3 event: HIGH pulse duration */
+            if(dur >= glitch_min) {
+                last_high_dur = dur;
+            }
+            continue;
         }
 
-        ManchesterState next_state;
-        bool data_bit;
+        /* CC4 event: period */
+        if(last_high_dur == 0 || dur <= last_high_dur) {
+            last_high_dur = 0;
+            continue;
+        }
 
-        if(manchester_advance(state, event, &next_state, &data_bit)) {
-            /* Hitag S MC4K uses same Manchester polarity as EM4100:
-             * bit '1' = LOAD→UNLOAD = COMP1 L→H → state machine outputs TRUE
-             * bit '0' = UNLOAD→LOAD = COMP1 H→L → state machine outputs FALSE
-             * No inversion needed. */
-            total_bits++;
-            if(sof_remaining > 0) {
-                sof_remaining--;
-            } else {
-                if(data_bit) {
-                    out_data[data_bits / 8] |= (1 << (7 - (data_bits % 8)));
+        uint32_t high_dur = last_high_dur;
+        uint32_t low_dur = dur - high_dur;
+        last_high_dur = 0;
+
+        if(!started) {
+            /* First pair: carrier HIGH → skip, keep LOW as SOF start */
+            started = true;
+            FURI_LOG_D(TAG, "MC: initial carrier H=%lu, SOF start L=%lu",
+                (unsigned long)high_dur, (unsigned long)low_dur);
+            if(low_dur >= glitch_min && hp_count < MC4K_MAX_HALF_PERIODS) {
+                size_t n = (low_dur < threshold) ? 1 : 2;
+                for(size_t j = 0; j < n && hp_count < MC4K_MAX_HALF_PERIODS; j++) {
+                    hp_levels[hp_count++] = false; /* LOW */
                 }
-                data_bits++;
+            }
+            continue;
+        }
+
+        /* Normal pair: HIGH pulse then LOW pulse */
+        if(high_dur >= glitch_min) {
+            size_t n = (high_dur < threshold) ? 1 : 2;
+            for(size_t j = 0; j < n && hp_count < MC4K_MAX_HALF_PERIODS; j++) {
+                hp_levels[hp_count++] = true; /* HIGH */
             }
         }
-
-        state = next_state;
+        if(low_dur >= glitch_min) {
+            size_t n = (low_dur < threshold) ? 1 : 2;
+            for(size_t j = 0; j < n && hp_count < MC4K_MAX_HALF_PERIODS; j++) {
+                hp_levels[hp_count++] = false; /* LOW */
+            }
+        }
     }
 
-    FURI_LOG_I(TAG, "MC4K: %d edges -> %d bits (%d SOF + %d data)",
-        (int)cap->edge_count, (int)total_bits,
+    /* If odd number of half-periods, pad with HIGH (carrier idle) */
+    if((hp_count % 2) == 1 && hp_count < MC4K_MAX_HALF_PERIODS) {
+        hp_levels[hp_count++] = true;
+    }
+
+    FURI_LOG_D(TAG, "MC: %d half-periods from %d edges",
+        (int)hp_count, (int)cap->edge_count);
+
+    /* --- Step 3-4: Pair half-periods into bits ---
+     * bit value = 1 if second half is HIGH, 0 if second half is LOW */
+    size_t total_bits = hp_count / 2;
+    size_t sof_remaining = sof_bits;
+    size_t data_bits = 0;
+
+    for(size_t i = 0; i < total_bits && data_bits < max_bits; i++) {
+        bool second_half = hp_levels[i * 2 + 1];
+
+        if(sof_remaining > 0) {
+            sof_remaining--;
+        } else {
+            if(second_half) {
+                out_data[data_bits / 8] |= (1 << (7 - (data_bits % 8)));
+            }
+            data_bits++;
+        }
+    }
+
+    FURI_LOG_I(TAG, "MC4K: %d edges -> %d hp -> %d bits (%d SOF + %d data)",
+        (int)cap->edge_count, (int)hp_count, (int)total_bits,
         (int)sof_bits, (int)data_bits);
 
     if(data_bits > 0) {
@@ -414,7 +444,7 @@ static size_t hitag_s_send_receive(
         "RX: %d edges%s (mode=%s)",
         (int)hs_capture.edge_count,
         hs_capture.overflow ? " [OVERFLOW]" : "",
-        rx_mode == HitagSRxAC2K ? "AC2K" : "MC4K");
+        rx_mode == HitagSRxAC2K ? "AC2K" : (rx_mode == HitagSRxMC2K ? "MC2K" : "MC4K"));
 
     /* Log raw edges at DEBUG level (first 20) */
     size_t log_count = (hs_capture.edge_count < 20) ? hs_capture.edge_count : 20;
@@ -517,23 +547,64 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
         FURI_LOG_I(TAG, "TX: UID_REQ_%s (5 bits, val=0x%02X)",
             proto_modes[c].name, proto_modes[c].cmd_5bit);
 
-        uint8_t rx[4] = {0};
-        size_t rx_bits = hitag_s_send_receive(
-            cmd, 5, rx, 32,
-            HITAG_S_RX_TIMEOUT_UID,
-            HitagSRxMC2K,
-            proto_modes[c].uid_sof);
+        uint32_t prev_uid = 0;
+        size_t stable_count = 0;
+        bool had_decode = false;
 
-        if(rx_bits >= 32) {
-            *uid = ((uint32_t)rx[0] << 24) | ((uint32_t)rx[1] << 16) |
-                   ((uint32_t)rx[2] << 8) | (uint32_t)rx[3];
-            active_mode_idx = c;
-            FURI_LOG_I(TAG, "UID: %08lX (via %s mode)",
-                (unsigned long)*uid, proto_modes[c].name);
-            return HitagSResultOk;
+        for(size_t attempt = 0; attempt < 6; attempt++) {
+            uint8_t rx[4] = {0};
+
+            /* UID response is AC2K per Hitag S anti-collision; use MC2K as fallback
+             * for clone variants that may answer with Manchester-like timing. */
+            size_t rx_bits = hitag_s_send_receive(
+                cmd, 5, rx, 32,
+                HITAG_S_RX_TIMEOUT_UID,
+                HitagSRxAC2K,
+                proto_modes[c].uid_sof);
+
+            if(rx_bits < 32) {
+                rx_bits = hitag_s_send_receive(
+                    cmd, 5, rx, 32,
+                    HITAG_S_RX_TIMEOUT_UID,
+                    HitagSRxMC2K,
+                    proto_modes[c].uid_sof);
+            }
+
+            if(rx_bits >= 32) {
+                uint32_t current_uid = ((uint32_t)rx[0] << 24) | ((uint32_t)rx[1] << 16) |
+                                       ((uint32_t)rx[2] << 8) | (uint32_t)rx[3];
+                had_decode = true;
+
+                if(stable_count == 0 || current_uid == prev_uid) {
+                    stable_count++;
+                } else {
+                    stable_count = 1;
+                }
+                prev_uid = current_uid;
+
+                FURI_LOG_D(TAG, "%s UID try %d: %08lX (stable=%d)",
+                    proto_modes[c].name,
+                    (int)(attempt + 1),
+                    (unsigned long)current_uid,
+                    (int)stable_count);
+
+                if(stable_count >= 2) {
+                    *uid = current_uid;
+                    active_mode_idx = c;
+                    FURI_LOG_I(TAG, "UID: %08lX (via %s mode, stable)",
+                        (unsigned long)*uid, proto_modes[c].name);
+                    return HitagSResultOk;
+                }
+            }
+
+            furi_delay_us(HITAG_S_T_WAIT_SC_US);
         }
 
-        FURI_LOG_W(TAG, "%s: only %d data bits", proto_modes[c].name, (int)rx_bits);
+        if(had_decode) {
+            FURI_LOG_W(TAG, "%s: UID decoded but unstable", proto_modes[c].name);
+        } else {
+            FURI_LOG_W(TAG, "%s: no valid 32-bit UID response", proto_modes[c].name);
+        }
         furi_delay_us(HITAG_S_T_WAIT_SC_US);
     }
 
