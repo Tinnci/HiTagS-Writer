@@ -60,8 +60,52 @@ bool hitags_writer_scene_read_tag_on_event(void* context, SceneManagerEvent even
 
             view_dispatcher_switch_to_view(app->view_dispatcher, HitagSViewWidget);
             consumed = true;
+        } else if(event.event == HitagSEventReadFailed) {
+            hitags_writer_worker_stop(app);
+            notification_message(app->notifications, &sequence_blink_stop);
+            notification_message(app->notifications, &sequence_error);
+
+            Widget* widget = app->widget;
+            widget_reset(widget);
+
+            widget_add_icon_element(widget, 83, 22, &I_WarningDolphinFlip_45x42);
+            widget_add_string_element(
+                widget, 40, 5, AlignCenter, AlignTop, FontPrimary, "Read Failed!");
+
+            const char* errmsg;
+            switch(app->last_result) {
+            case HitagSResultTimeout:
+                errmsg = "No tag detected.\nPlace 8268 tag on\nFlipper's back.";
+                break;
+            case HitagSResultNack:
+                errmsg = "Auth rejected.\nWrong password or\nnot a 8268 chip?";
+                break;
+            default:
+                errmsg = "Could not read tag.\nTry again.";
+                break;
+            }
+            widget_add_string_multiline_element(
+                widget, 40, 22, AlignCenter, AlignTop, FontSecondary, errmsg);
+
+            widget_add_button_element(
+                widget, GuiButtonTypeLeft, "Back", hitags_writer_widget_callback, app);
+            widget_add_button_element(
+                widget, GuiButtonTypeRight, "Retry", hitags_writer_widget_callback, app);
+
+            view_dispatcher_switch_to_view(app->view_dispatcher, HitagSViewWidget);
+            consumed = true;
         } else if(event.event == GuiButtonTypeCenter || event.event == GuiButtonTypeLeft) {
             scene_manager_previous_scene(app->scene_manager);
+            consumed = true;
+        } else if(event.event == GuiButtonTypeRight) {
+            /* Retry: restart worker */
+            widget_reset(app->widget);
+            popup_set_header(app->popup, "Reading...", 89, 30, AlignCenter, AlignTop);
+            popup_set_text(app->popup, "Place 8268 tag on\nFlipper's back", 89, 43, AlignCenter, AlignTop);
+            popup_set_icon(app->popup, 0, 3, &I_NFC_manual_60x50);
+            view_dispatcher_switch_to_view(app->view_dispatcher, HitagSViewPopup);
+            notification_message(app->notifications, &sequence_blink_start_cyan);
+            hitags_writer_worker_start(app, HitagSWorkerReadPages);
             consumed = true;
         }
     } else if(event.type == SceneManagerEventTypeBack) {

@@ -212,14 +212,14 @@ static size_t hitag_s_decode_ac2k(
         }
     }
 
-    FURI_LOG_I(TAG, "AC2K: %d edges -> %d bits (%d SOF + %d data)",
+    FURI_LOG_D(TAG, "AC2K: %d edges -> %d bits (%d SOF + %d data)",
         (int)cap->edge_count, (int)total_bits,
         (int)sof_bits, (int)data_bits);
 
     if(data_bits > 0) {
         size_t bytes = (data_bits + 7) / 8;
         if(bytes >= 4) {
-            FURI_LOG_I(TAG, "AC2K data: %02X %02X %02X %02X (%d bits)",
+            FURI_LOG_D(TAG, "AC2K data: %02X %02X %02X %02X (%d bits)",
                 out_data[0], out_data[1], out_data[2], out_data[3],
                 (int)data_bits);
         }
@@ -312,14 +312,14 @@ static size_t hitag_s_decode_mc4k(
         state = next_state;
     }
 
-    FURI_LOG_I(TAG, "MC4K: %d edges -> %d bits (%d SOF + %d data)",
+    FURI_LOG_D(TAG, "MC4K: %d edges -> %d bits (%d SOF + %d data)",
         (int)cap->edge_count, (int)total_bits,
         (int)sof_bits, (int)data_bits);
 
     if(data_bits > 0) {
         size_t bytes = (data_bits + 7) / 8;
         if(bytes >= 4) {
-            FURI_LOG_I(TAG, "MC4K data: %02X %02X %02X %02X (%d bits)",
+            FURI_LOG_D(TAG, "MC4K data: %02X %02X %02X %02X (%d bits)",
                 out_data[0], out_data[1], out_data[2], out_data[3],
                 (int)data_bits);
         }
@@ -376,17 +376,17 @@ static size_t hitag_s_send_receive(
         return 0;
     }
 
-    FURI_LOG_I(
+    FURI_LOG_D(
         TAG,
         "RX: %d edges%s (mode=%s)",
         (int)hs_capture.edge_count,
         hs_capture.overflow ? " [OVERFLOW]" : "",
         rx_mode == HitagSRxAC2K ? "AC2K" : "MC4K");
 
-    /* Log raw edges for debugging (first 20) */
+    /* Log raw edges at DEBUG level (first 20) */
     size_t log_count = (hs_capture.edge_count < 20) ? hs_capture.edge_count : 20;
     for(size_t i = 0; i < log_count; i++) {
-        FURI_LOG_I(
+        FURI_LOG_D(
             TAG,
             "  e[%d]: %s %lu",
             (int)i,
@@ -415,13 +415,13 @@ void hitag_s_field_on(void) {
      * The official LFRFID reader uses pulldown() — NOT pull_release()! */
     furi_hal_rfid_pin_pull_pulldown();
     furi_delay_us(HITAG_S_T_WAIT_POWERUP_US);
-    FURI_LOG_I(TAG, "Field ON, carrier 125kHz");
+    FURI_LOG_D(TAG, "Field ON, carrier 125kHz");
 }
 
 void hitag_s_field_off(void) {
     furi_hal_rfid_tim_read_stop();
     furi_hal_rfid_pins_reset();
-    FURI_LOG_I(TAG, "Field OFF");
+    FURI_LOG_D(TAG, "Field OFF");
 }
 
 /* ============================================================
@@ -534,6 +534,17 @@ HitagSResult hitag_s_select(uint32_t uid, uint32_t* config) {
     if(rx_bits < 32) {
         FURI_LOG_W(TAG, "SELECT: only %d bits received", (int)rx_bits);
         return HitagSResultTimeout;
+    }
+
+    /* In ADV mode, response includes 8-bit CRC — verify it */
+    if(active_mode_idx == 1 && rx_bits >= 40) {
+        uint8_t rx_crc = rx[4];
+        uint8_t calc_crc = hitag_s_crc8(rx, 32);
+        if(rx_crc != calc_crc) {
+            FURI_LOG_W(TAG, "SELECT: CRC mismatch (rx=%02X calc=%02X)", rx_crc, calc_crc);
+            return HitagSResultCrcError;
+        }
+        FURI_LOG_D(TAG, "SELECT: ADV CRC OK (%02X)", rx_crc);
     }
 
     *config = ((uint32_t)rx[0] << 24) | ((uint32_t)rx[1] << 16) |
@@ -707,9 +718,9 @@ HitagSResult hitag_s_read_page(uint8_t page, uint32_t* data) {
     furi_delay_us(HITAG_S_T_WAIT_SC_US);
 
     /* Combined send + receive — MC4K response with page data */
-    uint8_t rx[4] = {0};
+    uint8_t rx[5] = {0}; /* 32 data + possibly 8 CRC in ADV mode */
     size_t rx_bits = hitag_s_send_receive(
-        cmd, 20, rx, 32,
+        cmd, 20, rx, 40,
         HITAG_S_RX_TIMEOUT_DATA,
         HitagSRxMC4K,
         hitag_s_data_sof());
@@ -717,6 +728,17 @@ HitagSResult hitag_s_read_page(uint8_t page, uint32_t* data) {
     if(rx_bits < 32) {
         FURI_LOG_W(TAG, "READ_PAGE addr=%d: only %d bits received", page, (int)rx_bits);
         return HitagSResultTimeout;
+    }
+
+    /* In ADV mode, verify CRC */
+    if(active_mode_idx == 1 && rx_bits >= 40) {
+        uint8_t rx_crc = rx[4];
+        uint8_t calc_crc = hitag_s_crc8(rx, 32);
+        if(rx_crc != calc_crc) {
+            FURI_LOG_W(TAG, "READ_PAGE addr=%d: CRC mismatch (rx=%02X calc=%02X)",
+                page, rx_crc, calc_crc);
+            return HitagSResultCrcError;
+        }
     }
 
     *data = ((uint32_t)rx[0] << 24) | ((uint32_t)rx[1] << 16) |
@@ -732,30 +754,6 @@ HitagSResult hitag_s_read_page(uint8_t page, uint32_t* data) {
 
 HitagSResult hitag_s_read_uid_sequence(uint32_t* uid) {
     hitag_s_field_on();
-
-    /* Diagnostic: passively capture what the tag broadcasts (EM4100) */
-    hs_capture.edge_count = 0;
-    hs_capture.overflow = false;
-    furi_hal_rfid_tim_read_capture_start(hitag_s_capture_callback, (void*)&hs_capture);
-    furi_delay_us(20000); /* 20ms passive listen */
-    furi_hal_rfid_tim_read_capture_stop();
-    FURI_LOG_I(
-        TAG,
-        "Passive: %d edges%s",
-        (int)hs_capture.edge_count,
-        hs_capture.overflow ? " [OVF]" : "");
-    if(hs_capture.edge_count > 4) {
-        /* Log first few edges */
-        size_t n = (hs_capture.edge_count < 10) ? hs_capture.edge_count : 10;
-        for(size_t i = 0; i < n; i++) {
-            FURI_LOG_I(
-                TAG,
-                "  p[%d]: %s %lu",
-                (int)i,
-                hs_capture.levels[i] ? "H" : "L",
-                (unsigned long)hs_capture.durations[i]);
-        }
-    }
 
     HitagSResult result = hitag_s_uid_request(uid);
 

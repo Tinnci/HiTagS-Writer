@@ -16,7 +16,7 @@ static int32_t hitags_writer_worker_thread(void* context) {
     HitagSApp* app = context;
 
     if(app->worker_op == HitagSWorkerWrite) {
-        /* Write: continuous retry until success or stopped */
+        /* Write: retry up to 15 times, then report failure */
         Em4100HitagData hitag_data;
         em4100_prepare_hitag_data(app->em4100_id, &hitag_data);
 
@@ -36,40 +36,61 @@ static int32_t hitags_writer_worker_thread(void* context) {
             app->em4100_id[3],
             app->em4100_id[4]);
 
+        int attempts = 0;
+        const int max_attempts = 15;
+
         while(true) {
-            /* Check for stop signal */
             uint32_t flags = furi_thread_flags_get();
             if(flags & HITAGS_WORKER_FLAG_STOP) break;
 
+            attempts++;
             app->last_result =
                 hitag_s_8268_write_sequence(app->password, pages, page_addrs, 3);
 
             if(app->last_result == HitagSResultOk) {
-                FURI_LOG_I(TAG, "Worker: Write successful!");
+                FURI_LOG_I(TAG, "Worker: Write OK (attempt %d)", attempts);
                 view_dispatcher_send_custom_event(
                     app->view_dispatcher, HitagSEventWriteOk);
                 break;
             }
 
-            /* Brief delay before retry, check stop flag */
+            if(attempts >= max_attempts) {
+                FURI_LOG_W(TAG, "Worker: Write failed after %d attempts", attempts);
+                view_dispatcher_send_custom_event(
+                    app->view_dispatcher, HitagSEventWriteFailed);
+                break;
+            }
+
             uint32_t wait = furi_thread_flags_wait(
                 HITAGS_WORKER_FLAG_STOP, FuriFlagWaitAny, 200);
             if(wait != (uint32_t)FuriFlagErrorTimeout) break;
         }
     } else if(app->worker_op == HitagSWorkerReadUid) {
-        /* ReadUid: continuous scan until found or stopped */
+        /* ReadUid: scan up to 15 times, then report failure */
         FURI_LOG_I(TAG, "Worker: Scanning for UID...");
+
+        int attempts = 0;
+        const int max_attempts = 15;
 
         while(true) {
             uint32_t flags = furi_thread_flags_get();
             if(flags & HITAGS_WORKER_FLAG_STOP) break;
 
+            attempts++;
             app->last_result = hitag_s_read_uid_sequence(&app->tag_uid);
 
             if(app->last_result == HitagSResultOk) {
-                FURI_LOG_I(TAG, "Worker: UID=%08lX", (unsigned long)app->tag_uid);
+                FURI_LOG_I(TAG, "Worker: UID=%08lX (attempt %d)",
+                    (unsigned long)app->tag_uid, attempts);
                 view_dispatcher_send_custom_event(
                     app->view_dispatcher, HitagSEventReadOk);
+                break;
+            }
+
+            if(attempts >= max_attempts) {
+                FURI_LOG_W(TAG, "Worker: UID read failed after %d attempts", attempts);
+                view_dispatcher_send_custom_event(
+                    app->view_dispatcher, HitagSEventReadFailed);
                 break;
             }
 
@@ -78,32 +99,42 @@ static int32_t hitags_writer_worker_thread(void* context) {
             if(wait != (uint32_t)FuriFlagErrorTimeout) break;
         }
     } else if(app->worker_op == HitagSWorkerReadPages) {
-        /* ReadPages: continuous scan, read EM4100 data from tag */
+        /* ReadPages: scan up to 15 times, then report failure */
         FURI_LOG_I(TAG, "Worker: Scanning to read tag data...");
 
         uint8_t page_addrs[3] = {1, 4, 5};
+        int attempts = 0;
+        const int max_attempts = 15;
 
         while(true) {
             uint32_t flags = furi_thread_flags_get();
             if(flags & HITAGS_WORKER_FLAG_STOP) break;
 
+            attempts++;
             app->last_result = hitag_s_8268_read_sequence(
                 app->password, app->read_pages, page_addrs, 3, &app->tag_uid);
 
             if(app->last_result == HitagSResultOk) {
-                /* Decode EM4100 ID from read data */
                 em4100_decode_hitag_data(
                     app->read_pages[1], app->read_pages[2], app->read_id);
                 FURI_LOG_I(
                     TAG,
-                    "Worker: Read EM4100 %02X:%02X:%02X:%02X:%02X",
+                    "Worker: Read EM4100 %02X:%02X:%02X:%02X:%02X (attempt %d)",
                     app->read_id[0],
                     app->read_id[1],
                     app->read_id[2],
                     app->read_id[3],
-                    app->read_id[4]);
+                    app->read_id[4],
+                    attempts);
                 view_dispatcher_send_custom_event(
                     app->view_dispatcher, HitagSEventReadOk);
+                break;
+            }
+
+            if(attempts >= max_attempts) {
+                FURI_LOG_W(TAG, "Worker: Read failed after %d attempts", attempts);
+                view_dispatcher_send_custom_event(
+                    app->view_dispatcher, HitagSEventReadFailed);
                 break;
             }
 

@@ -35,6 +35,11 @@ bool hitags_writer_scene_write_on_event(void* context, SceneManagerEvent event) 
             notification_message(app->notifications, &sequence_success);
             scene_manager_next_scene(app->scene_manager, HitagSSceneWriteSuccess);
             consumed = true;
+        } else if(event.event == HitagSEventWriteFailed) {
+            hitags_writer_worker_stop(app);
+            notification_message(app->notifications, &sequence_blink_stop);
+            scene_manager_next_scene(app->scene_manager, HitagSSceneWriteFail);
+            consumed = true;
         }
     } else if(event.type == SceneManagerEventTypeBack) {
         /* User pressed Back — stop scanning and go back */
