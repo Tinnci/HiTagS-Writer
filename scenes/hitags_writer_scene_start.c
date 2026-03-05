@@ -76,6 +76,13 @@ void hitags_writer_scene_start_on_enter(void* context) {
         app);
 
     submenu_add_item(
+        submenu,
+        "Wipe Tag",
+        SubmenuIndexWipeTag,
+        hitags_writer_scene_start_submenu_callback,
+        app);
+
+    submenu_add_item(
         submenu, "About", SubmenuIndexAbout, hitags_writer_scene_start_submenu_callback, app);
 
     submenu_set_selected_item(

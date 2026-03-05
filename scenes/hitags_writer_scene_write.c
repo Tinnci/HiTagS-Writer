@@ -32,6 +32,7 @@ bool hitags_writer_scene_write_on_event(void* context, SceneManagerEvent event) 
     if(event.type == SceneManagerEventTypeCustom) {
         if(event.event == HitagSEventWriteOk) {
             hitags_writer_worker_stop(app);
+            notification_message(app->notifications, &sequence_blink_stop);
             notification_message(app->notifications, &sequence_success);
             scene_manager_next_scene(app->scene_manager, HitagSSceneWriteSuccess);
             consumed = true;

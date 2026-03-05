@@ -13,6 +13,8 @@ void hitags_writer_scene_read_uid_on_enter(void* context) {
     popup_set_header(popup, "Reading...", 89, 30, AlignCenter, AlignTop);
     popup_set_text(popup, "Place tag on\nFlipper back", 89, 43, AlignCenter, AlignTop);
     popup_set_icon(popup, 0, 3, &I_NFC_manual_60x50);
+
+    view_dispatcher_switch_to_view(app->view_dispatcher, HitagSViewPopup);
     notification_message(app->notifications, &sequence_blink_start_cyan);
 
     /* Start UID read in worker thread — non-blocking! */
