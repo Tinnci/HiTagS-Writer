@@ -1,36 +1,37 @@
 # HiTagS Writer
 
-**Flipper Zero** 外部应用 (FAP)，用于读取、写入、转储和克隆 **HiTag S 8268 系列魔术卡**。
+**Flipper Zero** external application (FAP) for reading, writing, dumping, and cloning **HiTag S 8268 series magic chips**.
 
-## 功能
+## Features
 
-| 功能 | 说明 |
-|------|------|
-| **写入 EM4100 ID** | 手动输入 5 字节 EM4100 ID，编码并写入配置页 + 数据页 |
-| **从文件加载** | 浏览 `.rfid` 文件，加载 EM4100 协议数据并写入 |
-| **读取标签数据** | 读取配置页与数据页，解码显示 EM4100 卡号 |
-| **读取标签 UID** | 读取并显示 HiTag S 标签的 32 位 UID |
-| **写入标签 UID** | 修改标签 UID（8268 魔术卡特有功能，写入 Page 0）|
-| **全量转储 (Full Dump)** | 读取所有页面，显示摘要，支持保存为 `.hts` 文件或串口输出 |
-| **加载并克隆** | 从 `.hts` 转储文件恢复完整标签数据（UID + 配置 + 数据页）|
-| **擦除标签 (Wipe)** | 清空所有数据页，重置配置和密码为出厂默认值 |
-| **关于** | 应用信息与支持的芯片型号 |
+| Feature | Description |
+|---------|-------------|
+| **Write EM4100 ID** | Manually input a 5-byte EM4100 ID, encode and write to config + data pages |
+| **Load from File** | Browse `.rfid` files, load EM4100 protocol data and write to tag |
+| **Read Tag Data** | Read config and data pages, decode and display EM4100 card number |
+| **Read Tag UID** | Read and display the 32-bit UID of a HiTag S tag |
+| **Write Tag UID** | Modify the tag UID (8268 magic chip exclusive — writes Page 0) |
+| **Full Dump** | Read all pages, display summary, save as `.hts` file or log to serial |
+| **Load & Clone** | Restore full tag data from `.hts` dump file (UID + config + data pages) |
+| **Wipe Tag** | Clear all data pages, reset config and password to factory defaults |
+| **About** | App information and supported chip models |
 
-### 8268 高级特性
+### 8268 Advanced Features
 
-- **多密码认证**: 自动尝试默认密码 `0xBBDD3399` 和备选密码 `0x4D494B52`
-- **写入校验**: 每页写入后自动回读验证（配置页 PWDH0 字节掩码处理）
-- **页锁检测**: 根据 CON2 的 LCK 位检测锁定页面，跳过不可写页面
-- **安全写入顺序**: 先写数据页，再写配置页，最后写 UID（避免配置变更锁定后续操作）
+- **Multi-password authentication**: Auto-tries 5 default passwords in sequence:
+  `0xBBDD3399` (standard), `0x4D494B52` ("MIKR"), `0xAAAAAAAA`, `0x00000000`, `0xFFFFFFFF`
+- **Write verification**: Auto read-back after each page write (config page PWDH0 byte masked)
+- **Page lock detection**: Checks CON2 LCK bits for locked pages, skips non-writable pages
+- **Safe write order**: Data pages → config page → UID (prevents config changes from locking writes)
 
-## 支持的芯片
+## Supported Chips
 
 - **ID-F8268** / F8278 / F8310 / K8678
-- 默认密码: `0xBBDD3399`，备选: `0x4D494B52` ("MIKR")
-- 兼容 HiTag S256 / S2048 协议
-- MEMT 字段自动识别存储容量（8 / 64 页）
+- Default password: `0xBBDD3399`, alternates: `0x4D494B52` ("MIKR"), `0xAAAAAAAA`, `0x00000000`, `0xFFFFFFFF`
+- Compatible with HiTag S256 / S2048 protocol
+- MEMT field auto-detection for memory capacity (8 / 64 pages)
 
-## .hts 转储文件格式
+## .hts Dump File Format
 
 ```
 Filetype: HiTag S 8268 Dump
@@ -43,126 +44,126 @@ Page 1: XX XX XX XX
 ...
 ```
 
-文件保存在 `/ext/lfrfid/HiTagS_XXXXXXXX.hts`（以 UID 命名）。
+Files are saved to `/ext/lfrfid/HiTagS_XXXXXXXX.hts` (named by UID).
 
-## 技术原理
+## Technical Details
 
-### 写入流程
+### Write Sequence
 
 ```
-1. 上电等待 (2500µs @ 125kHz)
-2. UID 请求 (UID_REQ_ADV1, 5 bits BPLM)
-3. 接收 UID 响应 (Manchester MC4K 解码, 半周期跟踪算法)
-4. SELECT (5bit cmd + 32bit UID + 8bit CRC = 45 bits)
-5. 8268 认证: WRITE_PAGE(page 64) → 密码+CRC(40 bits)
-6. 写入数据页 (Page 4, 5) → 写入配置页 (Page 1) → 写入 UID (Page 0)
-7. 每页写入后回读校验
+1. Power-up wait (2500µs @ 125kHz carrier)
+2. UID request (UID_REQ_ADV1, 5 bits BPLM)
+3. Receive UID response (Manchester MC4K decode, half-period tracking)
+4. SELECT (5-bit cmd + 32-bit UID + 8-bit CRC = 45 bits)
+5. 8268 auth: WRITE_PAGE(page 64) → Password+CRC (40 bits)
+6. Write data pages (Page 4, 5) → config page (Page 1) → UID (Page 0)
+7. Read-back verification after each page write
 ```
 
-### 协议层
+### Protocol Layer
 
 - **Reader → Tag**: Binary Pulse Length Modulation (BPLM)
-  - 载波频率: 125 kHz
-  - Gap (T_LOW): 8 载波周期 (64µs)
-  - Bit 0: 20 载波周期 (160µs)
-  - Bit 1: 28 载波周期 (224µs)
-- **Tag → Reader**: Manchester 编码 (MC4K, 4 kbit/s)
-  - 半周期: 16 载波周期 (128µs)
-  - 使用半周期跟踪解码器（非 Flipper 内置 `manchester_advance`）
-- **CRC**: CRC-8, 多项式 0x1D, 初始值 0xFF
-- **编程等待 (T_PROG)**: 6000µs（写入后等待 EEPROM 编程完成）
+  - Carrier frequency: 125 kHz
+  - Gap (T_LOW): 8 carrier cycles (64µs)
+  - Bit 0: 20 carrier cycles (160µs)
+  - Bit 1: 28 carrier cycles (224µs)
+- **Tag → Reader**: Manchester encoding (MC4K, 4 kbit/s)
+  - Half-period: 16 carrier cycles (128µs)
+  - Custom half-period tracking decoder (not Flipper's built-in `manchester_advance`)
+- **CRC**: CRC-8, polynomial 0x1D, initial value 0xFF
+- **Programming delay (T_PROG)**: 6000µs (EEPROM programming time after write)
 
-### 配置页 (Page 1) 结构
+### Config Page (Page 1) Layout
 
 ```
-Byte 0 (CON0): MEMT[1:0] RES0 RES3 ... (存储类型 + 82xx TTF 标志)
-Byte 1 (CON1): auth TTFC TTFDR[1:0] TTFM[1:0] LCON LKP (认证 + 锁定)
-Byte 2 (CON2): LCK7..LCK0 (各页组锁定位)
-Byte 3 (PWDH0): 密码高字节 (明文模式读回 0xFF)
+Byte 0 (CON0): MEMT[1:0] RES0 RES3 ... (memory type + 82xx TTF flags)
+Byte 1 (CON1): auth TTFC TTFDR[1:0] TTFM[1:0] LCON LKP (auth + lock)
+Byte 2 (CON2): LCK7..LCK0 (per-group lock bits)
+Byte 3 (PWDH0): Password high byte (reads back as 0xFF in plain mode)
 ```
 
-### EM4100 编码
+### EM4100 Encoding
 
-40-bit 卡号编码为 64-bit Manchester 帧:
-- 9 个 header bits (111111111)
-- 10 行 × (4 data + 1 parity) bits
+40-bit card number encoded as 64-bit Manchester frame:
+- 9 header bits (111111111)
+- 10 rows × (4 data + 1 parity) bits
 - 4 column parity bits + 1 stop bit
 
-## 构建
+## Building
 
-### 环境要求
+### Prerequisites
 
-- [Pixi](https://pixi.sh/) 包管理器
-- Flipper Zero 固件 SDK (由 ufbt 自动下载)
+- [Pixi](https://pixi.sh/) package manager
+- Flipper Zero firmware SDK (auto-downloaded by ufbt)
 
-### 快速开始
+### Quick Start
 
 ```bash
-# 安装依赖
+# Install dependencies
 pixi install
 
-# 安装 ufbt
+# Install ufbt
 pixi run install-ufbt
 
-# 编译
+# Build
 pixi run build
 
-# 连接 Flipper Zero 并部署运行
+# Connect Flipper Zero and deploy
 pixi run launch
 ```
 
-### 命令一览
+### Commands
 
-| 命令 | 说明 |
-|------|------|
-| `pixi run build` | 编译 FAP |
-| `pixi run launch` | 编译并部署到 Flipper Zero |
-| `pixi run clean` | 清理构建产物 |
-| `pixi run lint` | 代码风格检查 |
+| Command | Description |
+|---------|-------------|
+| `pixi run build` | Build FAP |
+| `pixi run launch` | Build and deploy to Flipper Zero |
+| `pixi run clean` | Clean build artifacts |
+| `pixi run lint` | Code style check |
 
-## 项目结构
+## Project Structure
 
 ```
 HiTagS Writer/
-├── application.fam            # FAP 清单文件
-├── hitags_writer_main.c       # 主入口 + Worker 线程 + ViewDispatcher
-├── hitags_writer_i.h          # 内部头文件 + App 结构体
-├── hitag_s_proto.c/h          # HiTag S 协议层 (BPLM TX / MC4K RX / CRC-8 / 8268 auth)
-├── em4100_encode.c/h          # EM4100 编码器 (40bit → 64bit Manchester)
+├── application.fam            # FAP manifest
+├── hitags_writer_main.c       # Main entry + Worker thread + ViewDispatcher
+├── hitags_writer_i.h          # Internal header + App struct
+├── hitag_s_proto.c/h          # HiTag S protocol (BPLM TX / MC4K RX / CRC-8 / 8268 auth)
+├── em4100_encode.c/h          # EM4100 encoder (40-bit → 64-bit Manchester)
 ├── scenes/
-│   ├── hitags_writer_scene_config.h    # 场景声明 (X-Macro)
-│   ├── hitags_writer_scene.c/h        # 场景处理器数组
-│   ├── *_scene_start.c                # 主菜单 (9 个入口)
-│   ├── *_scene_input_id.c            # EM4100 ID 字节输入
-│   ├── *_scene_select_file.c         # .rfid 文件浏览器
-│   ├── *_scene_write_confirm.c       # 写入确认对话框
-│   ├── *_scene_write.c               # 执行写入 (Worker)
-│   ├── *_scene_write_success.c       # 写入成功
-│   ├── *_scene_write_fail.c          # 写入失败 + 重试
-│   ├── *_scene_read_tag.c            # 读取标签数据
-│   ├── *_scene_read_uid.c            # 读取 UID
-│   ├── *_scene_write_uid.c           # 写入 UID (ByteInput)
-│   ├── *_scene_full_dump.c           # 全量转储 + 保存 .hts
-│   ├── *_scene_load_dump.c           # 加载 .hts + 克隆写入
-│   ├── *_scene_wipe_tag.c           # 擦除标签 (Wipe)
-│   └── *_scene_about.c              # 关于
-├── images/                    # 图标资源
-├── hitags_writer.png          # 应用图标 (10x10, 1-bit)
-├── sim_manchester.py          # Manchester 解码器 Python 仿真测试
-└── pixi.toml                 # Pixi 环境配置
+│   ├── hitags_writer_scene_config.h    # Scene declarations (X-Macro)
+│   ├── hitags_writer_scene.c/h        # Scene handler arrays
+│   ├── *_scene_start.c                # Main menu (9 entries)
+│   ├── *_scene_input_id.c            # EM4100 ID byte input
+│   ├── *_scene_select_file.c         # .rfid file browser
+│   ├── *_scene_write_confirm.c       # Write confirmation dialog
+│   ├── *_scene_write.c               # Execute write (Worker)
+│   ├── *_scene_write_success.c       # Write success
+│   ├── *_scene_write_fail.c          # Write failure + retry
+│   ├── *_scene_read_tag.c            # Read tag data
+│   ├── *_scene_read_uid.c            # Read UID
+│   ├── *_scene_write_uid.c           # Write UID (ByteInput)
+│   ├── *_scene_full_dump.c           # Full dump + save .hts
+│   ├── *_scene_load_dump.c           # Load .hts + clone
+│   ├── *_scene_wipe_tag.c           # Wipe tag
+│   └── *_scene_about.c              # About
+├── images/                    # Icon assets
+├── hitags_writer.png          # App icon (10x10, 1-bit)
+├── sim_manchester.py          # Manchester decoder Python simulation tests
+└── pixi.toml                 # Pixi environment config
 ```
 
-## 参考资料
+## References
 
-- [Proxmark3 RRG - hitagS.c](https://github.com/RfidResearchGroup/proxmark3) — 8268 底层 RF 交互 + 认证协议
-- [T5577 Multiwriter](https://github.com/Leptopt1los/t5577_multiwriter) — FAP 架构参考
-- [Flipper Zero Firmware](https://github.com/flipperdevices/flipperzero-firmware) — SDK + Manchester 解码器
-- [ufbt](https://github.com/flipperdevices/flipperzero-ufbt) — 构建工具
+- [Proxmark3 RRG — hitagS.c](https://github.com/RfidResearchGroup/proxmark3) — 8268 low-level RF + auth protocol
+- [T5577 Multiwriter](https://github.com/Leptopt1los/t5577_multiwriter) — FAP architecture reference
+- [Flipper Zero Firmware](https://github.com/flipperdevices/flipperzero-firmware) — SDK + Manchester decoder
+- [ufbt](https://github.com/flipperdevices/flipperzero-ufbt) — Build tool
 
-## 许可证
+## License
 
 MIT License
 
-## 作者
+## Author
 
 Tinnci
