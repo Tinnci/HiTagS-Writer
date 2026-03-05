@@ -14,10 +14,8 @@ void hitags_writer_scene_read_tag_on_enter(void* context) {
 
     /* Show scanning popup with dolphin icon */
     popup_set_header(popup, "Reading...", 89, 30, AlignCenter, AlignTop);
-    popup_set_text(popup, "Place 8268 tag on\nFlipper's back", 89, 43, AlignCenter, AlignTop);
+    popup_set_text(popup, "Place tag on\nFlipper back", 89, 43, AlignCenter, AlignTop);
     popup_set_icon(popup, 0, 3, &I_NFC_manual_60x50);
-
-    view_dispatcher_switch_to_view(app->view_dispatcher, HitagSViewPopup);
     notification_message(app->notifications, &sequence_blink_start_cyan);
 
     /* Start continuous read in worker thread */
@@ -41,7 +39,7 @@ bool hitags_writer_scene_read_tag_on_event(void* context, SceneManagerEvent even
             widget_add_icon_element(widget, 0, 9, &I_DolphinSuccess_91x55);
 
             widget_add_string_element(
-                widget, 97, 0, AlignCenter, AlignTop, FontPrimary, "Tag Data");
+                widget, 97, 0, AlignCenter, AlignTop, FontPrimary, "EM4100 ID");
 
             /* EM4100 ID */
             char id_str[16];
@@ -49,7 +47,7 @@ bool hitags_writer_scene_read_tag_on_event(void* context, SceneManagerEvent even
             snprintf(
                 app->text_store,
                 sizeof(app->text_store),
-                "EM4100: %s\nUID: %08lX",
+                "%s\n%08lX",
                 id_str,
                 (unsigned long)app->tag_uid);
             widget_add_string_multiline_element(
@@ -75,13 +73,13 @@ bool hitags_writer_scene_read_tag_on_event(void* context, SceneManagerEvent even
             const char* errmsg;
             switch(app->last_result) {
             case HitagSResultTimeout:
-                errmsg = "No tag detected.\nPlace 8268 tag on\nFlipper's back.";
+                errmsg = "No tag found.\nPlace tag on\nFlipper back.";
                 break;
             case HitagSResultNack:
-                errmsg = "Auth rejected.\nWrong password or\nnot a 8268 chip?";
+                errmsg = "Auth rejected.\nWrong password\nor not 8268?";
                 break;
             default:
-                errmsg = "Could not read tag.\nTry again.";
+                errmsg = "Read error.\nTry again.";
                 break;
             }
             widget_add_string_multiline_element(
@@ -102,7 +100,7 @@ bool hitags_writer_scene_read_tag_on_event(void* context, SceneManagerEvent even
             widget_reset(app->widget);
             popup_set_header(app->popup, "Reading...", 89, 30, AlignCenter, AlignTop);
             popup_set_text(
-                app->popup, "Place 8268 tag on\nFlipper's back", 89, 43, AlignCenter, AlignTop);
+                app->popup, "Place tag on\nFlipper back", 89, 43, AlignCenter, AlignTop);
             popup_set_icon(app->popup, 0, 3, &I_NFC_manual_60x50);
             view_dispatcher_switch_to_view(app->view_dispatcher, HitagSViewPopup);
             notification_message(app->notifications, &sequence_blink_start_cyan);

@@ -47,10 +47,7 @@ static void hitags_writer_scene_full_dump_save_file(HitagSApp* app) {
         popup_set_header(popup, "Saved!", 97, 12, AlignCenter, AlignTop);
         popup_set_icon(popup, 0, 9, &I_DolphinSuccess_91x55);
         snprintf(
-            app->text_store,
-            sizeof(app->text_store),
-            "HiTagS_%08lX.hts",
-            (unsigned long)app->tag_uid);
+            app->text_store, sizeof(app->text_store), "%08lX.hts", (unsigned long)app->tag_uid);
         popup_set_text(popup, app->text_store, 97, 25, AlignCenter, AlignTop);
         popup_set_context(popup, app);
         popup_set_callback(popup, hitags_writer_popup_timeout_callback);
@@ -69,8 +66,8 @@ void hitags_writer_scene_full_dump_on_enter(void* context) {
     HitagSApp* app = context;
     Popup* popup = app->popup;
 
-    popup_set_header(popup, "Dumping Tag...", 89, 30, AlignCenter, AlignTop);
-    popup_set_text(popup, "Reading all pages\nfrom 8268 tag", 89, 43, AlignCenter, AlignTop);
+    popup_set_header(popup, "Dumping...", 89, 30, AlignCenter, AlignTop);
+    popup_set_text(popup, "Reading pages\nfrom 8268 tag", 89, 43, AlignCenter, AlignTop);
     popup_set_icon(popup, 0, 3, &I_NFC_manual_60x50);
 
     view_dispatcher_switch_to_view(app->view_dispatcher, HitagSViewPopup);
@@ -141,10 +138,10 @@ bool hitags_writer_scene_full_dump_on_event(void* context, SceneManagerEvent eve
             const char* errmsg;
             switch(app->last_result) {
             case HitagSResultTimeout:
-                errmsg = "No tag detected.\nPlace 8268 tag on\nFlipper's back.";
+                errmsg = "No tag found.\nPlace tag on\nFlipper back.";
                 break;
             case HitagSResultNack:
-                errmsg = "Auth rejected.\nWrong password or\nnot 8268?";
+                errmsg = "Auth rejected.\nWrong password\nor not 8268?";
                 break;
             default:
                 errmsg = "Read error.\nTry again.";
@@ -192,9 +189,8 @@ bool hitags_writer_scene_full_dump_on_event(void* context, SceneManagerEvent eve
             widget_reset(app->widget);
             Popup* popup = app->popup;
             popup_reset(popup);
-            popup_set_header(popup, "Dumping Tag...", 89, 30, AlignCenter, AlignTop);
-            popup_set_text(
-                popup, "Reading all pages\nfrom 8268 tag", 89, 43, AlignCenter, AlignTop);
+            popup_set_header(popup, "Dumping...", 89, 30, AlignCenter, AlignTop);
+            popup_set_text(popup, "Reading pages\nfrom 8268 tag", 89, 43, AlignCenter, AlignTop);
             popup_set_icon(popup, 0, 3, &I_NFC_manual_60x50);
             scene_manager_set_scene_state(
                 app->scene_manager, HitagSSceneFullDump, FullDumpStateScanning);

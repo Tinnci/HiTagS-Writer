@@ -65,6 +65,8 @@ typedef enum {
     HitagSEventDumpFailed,
     HitagSEventCloneOk,
     HitagSEventCloneFailed,
+    HitagSEventWipeOk,
+    HitagSEventWipeFailed,
 } HitagSCustomEvent;
 
 /* --- Views --- */
@@ -86,6 +88,7 @@ typedef enum {
     HitagSWorkerWriteUid,
     HitagSWorkerFullDump,
     HitagSWorkerCloneDump, /* Write loaded dump to tag (UID + config + data) */
+    HitagSWorkerWipeTag, /* Wipe tag to factory defaults */
 } HitagSWorkerOp;
 
 /* --- Main App Structure --- */
@@ -139,6 +142,9 @@ struct HitagSApp {
     uint32_t clone_pages[HITAG_S_MAX_PAGES]; /**< Page data from loaded dump */
     uint8_t clone_addrs[HITAG_S_MAX_PAGES]; /**< Addresses of pages to write */
     size_t clone_count; /**< Number of pages to write */
+
+    /* Wipe result */
+    int wipe_count; /**< Number of pages wiped */
 
     /* Text buffers */
     char text_store[HITAGS_WRITER_TEXT_STORE_SIZE + 1];

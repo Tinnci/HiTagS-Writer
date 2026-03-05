@@ -13,6 +13,7 @@ typedef enum {
     SubmenuIndexWriteUID,
     SubmenuIndexFullDump,
     SubmenuIndexLoadDump,
+    SubmenuIndexWipeTag,
     SubmenuIndexAbout,
 } SubmenuIndex;
 
@@ -117,6 +118,10 @@ bool hitags_writer_scene_start_on_event(void* context, SceneManagerEvent event) 
             break;
         case SubmenuIndexLoadDump:
             scene_manager_next_scene(app->scene_manager, HitagSSceneLoadDump);
+            consumed = true;
+            break;
+        case SubmenuIndexWipeTag:
+            scene_manager_next_scene(app->scene_manager, HitagSSceneWipeTag);
             consumed = true;
             break;
         case SubmenuIndexAbout:

@@ -14,7 +14,7 @@ void hitags_writer_scene_write_success_on_enter(void* context) {
 
     char id_str[16];
     em4100_id_to_string(app->em4100_id, id_str);
-    snprintf(app->text_store, sizeof(app->text_store), "EM4100 %s\nwritten to 8268", id_str);
+    snprintf(app->text_store, sizeof(app->text_store), "ID written\n%s", id_str);
     popup_set_text(popup, app->text_store, 97, 25, AlignCenter, AlignTop);
 
     popup_set_context(popup, app);

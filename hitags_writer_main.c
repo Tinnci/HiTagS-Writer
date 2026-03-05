@@ -265,6 +265,39 @@ static int32_t hitags_writer_worker_thread(void* context) {
             uint32_t wait2 = furi_thread_flags_wait(HITAGS_WORKER_FLAG_STOP, FuriFlagWaitAny, 200);
             if(wait2 != (uint32_t)FuriFlagErrorTimeout) break;
         }
+    } else if(app->worker_op == HitagSWorkerWipeTag) {
+        /* WipeTag: clear all pages and reset config to factory defaults */
+        FURI_LOG_I(TAG, "Worker: Wiping tag...");
+
+        int attempts = 0;
+        const int max_attempts = 10;
+
+        while(true) {
+            uint32_t flags = furi_thread_flags_get();
+            if(flags & HITAGS_WORKER_FLAG_STOP) break;
+
+            attempts++;
+            int wiped = 0;
+
+            app->last_result =
+                hitag_s_8268_wipe_sequence(app->password, 0 /* auto-detect */, &wiped);
+
+            if(app->last_result == HitagSResultOk) {
+                app->wipe_count = wiped;
+                FURI_LOG_I(TAG, "Worker: Wipe OK, %d pages (attempt %d)", wiped, attempts);
+                view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventWipeOk);
+                break;
+            }
+
+            if(attempts >= max_attempts) {
+                FURI_LOG_W(TAG, "Worker: Wipe failed after %d attempts", attempts);
+                view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventWipeFailed);
+                break;
+            }
+
+            uint32_t wait3 = furi_thread_flags_wait(HITAGS_WORKER_FLAG_STOP, FuriFlagWaitAny, 200);
+            if(wait3 != (uint32_t)FuriFlagErrorTimeout) break;
+        }
     }
 
     return 0;

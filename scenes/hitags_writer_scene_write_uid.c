@@ -89,12 +89,9 @@ bool hitags_writer_scene_write_uid_on_event(void* context, SceneManagerEvent eve
             /* Confirmed — start writing */
             Popup* popup = app->popup;
             popup_reset(popup);
-            popup_set_header(popup, "Writing UID...", 89, 30, AlignCenter, AlignTop);
+            popup_set_header(popup, "Writing...", 89, 30, AlignCenter, AlignTop);
             snprintf(
-                app->text_store,
-                sizeof(app->text_store),
-                "UID: %08lX",
-                (unsigned long)app->target_uid);
+                app->text_store, sizeof(app->text_store), "%08lX", (unsigned long)app->target_uid);
             popup_set_text(popup, app->text_store, 89, 43, AlignCenter, AlignTop);
             popup_set_icon(popup, 0, 3, &I_RFIDDolphinSend_97x61);
 
@@ -131,7 +128,7 @@ bool hitags_writer_scene_write_uid_on_event(void* context, SceneManagerEvent eve
             /* Show success popup */
             Popup* popup = app->popup;
             popup_reset(popup);
-            popup_set_header(popup, "UID Written!", 97, 12, AlignCenter, AlignTop);
+            popup_set_header(popup, "UID Done!", 97, 12, AlignCenter, AlignTop);
             popup_set_icon(popup, 0, 9, &I_DolphinSuccess_91x55);
             snprintf(
                 app->text_store,
@@ -156,15 +153,15 @@ bool hitags_writer_scene_write_uid_on_event(void* context, SceneManagerEvent eve
             widget_reset(widget);
             widget_add_icon_element(widget, 83, 22, &I_WarningDolphinFlip_45x42);
             widget_add_string_element(
-                widget, 40, 5, AlignCenter, AlignTop, FontPrimary, "UID Write Failed!");
+                widget, 40, 5, AlignCenter, AlignTop, FontPrimary, "Write Failed!");
 
             const char* errmsg;
             switch(app->last_result) {
             case HitagSResultTimeout:
-                errmsg = "No tag detected.\nPlace 8268 tag on\nFlipper's back.";
+                errmsg = "No tag found.\nPlace 8268 on\nFlipper back.";
                 break;
             case HitagSResultNack:
-                errmsg = "Auth rejected.\nWrong password or\nnot 8268 magic?";
+                errmsg = "Auth rejected.\nWrong password\nor not 8268?";
                 break;
             default:
                 errmsg = "Write error.\nTry again.";
@@ -191,12 +188,9 @@ bool hitags_writer_scene_write_uid_on_event(void* context, SceneManagerEvent eve
             widget_reset(app->widget);
             Popup* popup = app->popup;
             popup_reset(popup);
-            popup_set_header(popup, "Writing UID...", 89, 30, AlignCenter, AlignTop);
+            popup_set_header(popup, "Writing...", 89, 30, AlignCenter, AlignTop);
             snprintf(
-                app->text_store,
-                sizeof(app->text_store),
-                "UID: %08lX",
-                (unsigned long)app->target_uid);
+                app->text_store, sizeof(app->text_store), "%08lX", (unsigned long)app->target_uid);
             popup_set_text(popup, app->text_store, 89, 43, AlignCenter, AlignTop);
             popup_set_icon(popup, 0, 3, &I_RFIDDolphinSend_97x61);
             view_dispatcher_switch_to_view(app->view_dispatcher, HitagSViewPopup);

@@ -11,10 +11,8 @@ void hitags_writer_scene_read_uid_on_enter(void* context) {
 
     /* Show scanning UI with dolphin icon */
     popup_set_header(popup, "Reading...", 89, 30, AlignCenter, AlignTop);
-    popup_set_text(popup, "Place 8268 tag on\nFlipper's back", 89, 43, AlignCenter, AlignTop);
+    popup_set_text(popup, "Place tag on\nFlipper back", 89, 43, AlignCenter, AlignTop);
     popup_set_icon(popup, 0, 3, &I_NFC_manual_60x50);
-
-    view_dispatcher_switch_to_view(app->view_dispatcher, HitagSViewPopup);
     notification_message(app->notifications, &sequence_blink_start_cyan);
 
     /* Start UID read in worker thread — non-blocking! */
@@ -73,10 +71,10 @@ bool hitags_writer_scene_read_uid_on_event(void* context, SceneManagerEvent even
             const char* errmsg;
             switch(app->last_result) {
             case HitagSResultTimeout:
-                errmsg = "No tag detected.\nPlace 8268 tag on\nFlipper's back.";
+                errmsg = "No tag found.\nPlace tag on\nFlipper back.";
                 break;
             default:
-                errmsg = "Could not read UID.\nTry again.";
+                errmsg = "Read error.\nTry again.";
                 break;
             }
             widget_add_string_multiline_element(
@@ -100,7 +98,7 @@ bool hitags_writer_scene_read_uid_on_event(void* context, SceneManagerEvent even
             widget_reset(app->widget);
             popup_set_header(app->popup, "Reading...", 89, 30, AlignCenter, AlignTop);
             popup_set_text(
-                app->popup, "Place 8268 tag on\nFlipper's back", 89, 43, AlignCenter, AlignTop);
+                app->popup, "Place tag on\nFlipper back", 89, 43, AlignCenter, AlignTop);
             popup_set_icon(app->popup, 0, 3, &I_NFC_manual_60x50);
             view_dispatcher_switch_to_view(app->view_dispatcher, HitagSViewPopup);
             notification_message(app->notifications, &sequence_blink_start_cyan);

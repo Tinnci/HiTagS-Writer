@@ -171,12 +171,12 @@ bool hitags_writer_scene_load_dump_on_event(void* context, SceneManagerEvent eve
             /* Success popup */
             Popup* popup = app->popup;
             popup_reset(popup);
-            popup_set_header(popup, "Clone Done!", 97, 12, AlignCenter, AlignTop);
+            popup_set_header(popup, "Cloned!", 97, 12, AlignCenter, AlignTop);
             popup_set_icon(popup, 0, 9, &I_DolphinSuccess_91x55);
             snprintf(
                 app->text_store,
                 sizeof(app->text_store),
-                "UID: %08lX\n%d pages cloned",
+                "UID: %08lX\n%d pgs cloned",
                 (unsigned long)app->clone_uid,
                 (int)app->clone_count);
             popup_set_text(popup, app->text_store, 97, 25, AlignCenter, AlignTop);
@@ -202,13 +202,13 @@ bool hitags_writer_scene_load_dump_on_event(void* context, SceneManagerEvent eve
             const char* errmsg;
             switch(app->last_result) {
             case HitagSResultTimeout:
-                errmsg = "No tag detected.\nPlace 8268 tag on\nFlipper's back.";
+                errmsg = "No tag found.\nPlace tag on\nFlipper back.";
                 break;
             case HitagSResultNack:
-                errmsg = "Auth rejected.\nWrong password or\nnot 8268 magic?";
+                errmsg = "Auth rejected.\nWrong password\nor not 8268?";
                 break;
             case HitagSResultError:
-                errmsg = "Write verify\nfailed. Try again.";
+                errmsg = "Verify failed.\nTry again.";
                 break;
             default:
                 errmsg = "Clone error.\nTry again.";

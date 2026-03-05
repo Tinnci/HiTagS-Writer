@@ -31,9 +31,12 @@ extern "C" {
 #define HITAG_S_QUIET        0x70
 
 /* --- 8268 magic chip constants --- */
-#define HITAG_S_8268_PASSWORD     0xBBDD3399UL
-#define HITAG_S_8268_AUTH_PAGE    64 /* Page 0x40 — write password here to authenticate */
-#define HITAG_S_8268_PASSWORD_ALT 0x4D494B52UL /* "MIKR" — alternate 82xx password */
+#define HITAG_S_8268_PASSWORD      0xBBDD3399UL /* Standard 8268 factory default */
+#define HITAG_S_8268_AUTH_PAGE     64 /* Page 0x40 — write password here to authenticate */
+#define HITAG_S_8268_PASSWORD_ALT1 0x4D494B52UL /* "MIKR" — HiTag 2 default key */
+#define HITAG_S_8268_PASSWORD_ALT2 0xAAAAAAAAUL /* Common alternate password */
+#define HITAG_S_8268_PASSWORD_ALT3 0x00000000UL /* All zeros */
+#define HITAG_S_8268_PASSWORD_ALT4 0xFFFFFFFFUL /* All ones */
 
 /* --- Config page bitfield structure (matches PM3 hitags_config_t) ---
  * Config page (page 1) is 4 bytes on wire, MSB first:
@@ -371,6 +374,23 @@ HitagSResult hitag_s_write_uid(uint32_t new_uid);
  * @return true if writable
  */
 bool hitag_s_page_writable(uint32_t config_val, uint8_t page);
+
+/**
+ * @brief Wipe 8268 tag to factory-like state
+ *
+ * Clears all data pages (4+) to 0x00000000, resets config to defaults:
+ *   CON0: MEMT=11 (64 pages), RES0=0, RES3=0 (no TTF)
+ *   CON1: auth=0 (plain mode), LKP=0, LCON=0, all unlocked
+ *   CON2: 0x00 (no page locks)
+ *   PWDH0: kept as 0x00 (will be written via password auth)
+ * Password page 2 reset to default 0xBBDD3399, page 3 to 0x00000000.
+ *
+ * @param password  Auth password (0 = try default passwords)
+ * @param max_page  Max page to clear (0 = auto-detect from config MEMT)
+ * @param pages_wiped  Output: number of pages successfully wiped (can be NULL)
+ * @return HitagSResult
+ */
+HitagSResult hitag_s_8268_wipe_sequence(uint32_t password, int max_page, int* pages_wiped);
 
 /**
  * @brief Save tag dump to file in Flipper Format

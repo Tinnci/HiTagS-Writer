@@ -15,7 +15,7 @@ void hitags_writer_scene_write_on_enter(void* context) {
 
     char id_str[16];
     em4100_id_to_string(app->em4100_id, id_str);
-    snprintf(app->text_store, sizeof(app->text_store), "EM4100: %s", id_str);
+    snprintf(app->text_store, sizeof(app->text_store), "%s", id_str);
     popup_set_text(popup, app->text_store, 89, 43, AlignCenter, AlignTop);
 
     view_dispatcher_switch_to_view(app->view_dispatcher, HitagSViewPopup);

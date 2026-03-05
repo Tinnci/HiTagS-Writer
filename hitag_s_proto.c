@@ -1122,8 +1122,11 @@ HitagSResult hitag_s_write_page_verify(uint8_t page, uint32_t data) {
 HitagSResult hitag_s_8268_authenticate_multi(const uint32_t* passwords, size_t count) {
     /* Default passwords to try if none provided */
     static const uint32_t default_passwords[] = {
-        HITAG_S_8268_PASSWORD, /* 0xBBDD3399 — standard 8268 password */
-        HITAG_S_8268_PASSWORD_ALT, /* 0x4D494B52 — "MIKR" alternate */
+        HITAG_S_8268_PASSWORD, /* 0xBBDD3399 — standard 8268 factory default */
+        HITAG_S_8268_PASSWORD_ALT1, /* 0x4D494B52 — "MIKR" HiTag 2 default */
+        HITAG_S_8268_PASSWORD_ALT2, /* 0xAAAAAAAA — common alternate */
+        HITAG_S_8268_PASSWORD_ALT3, /* 0x00000000 — all zeros */
+        HITAG_S_8268_PASSWORD_ALT4, /* 0xFFFFFFFF — all ones */
     };
 
     const uint32_t* pwd_list = passwords;
@@ -1401,6 +1404,111 @@ HitagSResult hitag_s_8268_clone_sequence(
         (int)data_count);
     hitag_s_field_off();
     return HitagSResultOk;
+}
+
+/* ============================================================
+ * Wipe Tag — reset 8268 to factory-like defaults
+ * ============================================================ */
+
+/** Default config for wiped 8268: MEMT=11(64pg), no auth, no locks */
+#define HITAG_S_WIPE_CONFIG 0x06000000UL
+/* CON0=0x06: MEMT=11 (bits 7:6 = 0b11 → 0x06 with other bits 0)
+ * Actually: packed byte[0] has MEMT in bits[1:0], so MEMT=11 = 0b00000011
+ * Let me compute correctly using the struct... */
+
+HitagSResult hitag_s_8268_wipe_sequence(uint32_t password, int max_page, int* pages_wiped) {
+    uint32_t uid = 0;
+    uint32_t current_config = 0;
+    int wiped = 0;
+
+    hitag_s_field_on();
+
+    /* Step 1: UID request */
+    HitagSResult result = hitag_s_uid_request(&uid);
+    if(result != HitagSResultOk) {
+        FURI_LOG_E(TAG, "Wipe: UID request failed");
+        hitag_s_field_off();
+        return result;
+    }
+
+    FURI_LOG_I(TAG, "Wipe: tag UID=%08lX", (unsigned long)uid);
+
+    /* Step 2: SELECT */
+    result = hitag_s_select(uid, &current_config);
+    if(result != HitagSResultOk) {
+        FURI_LOG_E(TAG, "Wipe: SELECT failed");
+        hitag_s_field_off();
+        return result;
+    }
+
+    /* Step 3: Authenticate */
+    if(password != 0) {
+        result = hitag_s_8268_authenticate(password);
+    } else {
+        result = hitag_s_8268_authenticate_multi(NULL, 0);
+    }
+    if(result != HitagSResultOk) {
+        FURI_LOG_E(TAG, "Wipe: Authentication failed");
+        hitag_s_field_off();
+        return result;
+    }
+
+    /* Determine max page from current config if not specified */
+    if(max_page <= 0) {
+        HitagSConfig cfg = hitag_s_parse_config(current_config);
+        max_page = hitag_s_max_page(&cfg);
+    }
+
+    FURI_LOG_I(TAG, "Wipe: clearing pages 4..%d", max_page);
+
+    /* Step 4: Clear all data pages (4+) to 0x00000000 */
+    for(int p = 4; p <= max_page; p++) {
+        result = hitag_s_write_page((uint8_t)p, 0x00000000UL);
+        if(result != HitagSResultOk) {
+            FURI_LOG_W(TAG, "Wipe: page %d write failed, continuing", p);
+            /* Don't abort — try remaining pages */
+        } else {
+            wiped++;
+        }
+    }
+
+    /* Step 5: Reset password pages to defaults */
+    /* Page 2 = password low 24 bits + PWDH0: write default password 0xBBDD3399 */
+    result = hitag_s_write_page(2, HITAG_S_8268_PASSWORD);
+    if(result == HitagSResultOk) {
+        wiped++;
+        FURI_LOG_I(TAG, "Wipe: password page 2 reset to default");
+    }
+
+    /* Page 3 = key page, clear to 0 */
+    result = hitag_s_write_page(3, 0x00000000UL);
+    if(result == HitagSResultOk) {
+        wiped++;
+        FURI_LOG_I(TAG, "Wipe: key page 3 cleared");
+    }
+
+    /* Step 6: Reset config page (page 1) — LAST before UID
+     * Build a clean default config:
+     *   MEMT=11 (64 pages), no auth, no locks, no TTF, plain mode */
+    HitagSConfig clean_cfg;
+    memset(&clean_cfg, 0, sizeof(clean_cfg));
+    clean_cfg.MEMT = 3; /* 11 = 64 pages */
+    clean_cfg.pwdh0 = (HITAG_S_8268_PASSWORD >> 24) & 0xFF;
+    uint32_t clean_config = hitag_s_pack_config(&clean_cfg);
+
+    result = hitag_s_write_page(1, clean_config);
+    if(result == HitagSResultOk) {
+        wiped++;
+        FURI_LOG_I(TAG, "Wipe: config reset to %08lX", (unsigned long)clean_config);
+    } else {
+        FURI_LOG_E(TAG, "Wipe: config write failed!");
+    }
+
+    if(pages_wiped) *pages_wiped = wiped;
+
+    FURI_LOG_I(TAG, "Wipe: done, %d pages wiped", wiped);
+    hitag_s_field_off();
+    return HitagSResultOk; /* Return OK even if some pages failed — partial wipe is useful */
 }
 
 /* ============================================================

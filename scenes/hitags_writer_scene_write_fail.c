@@ -16,13 +16,13 @@ void hitags_writer_scene_write_fail_on_enter(void* context) {
     const char* error_msg;
     switch(app->last_result) {
     case HitagSResultTimeout:
-        error_msg = "No tag detected.\nPlace 8268 tag on\nFlipper's back.";
+        error_msg = "No tag found.\nPlace tag on\nFlipper back.";
         break;
     case HitagSResultNack:
-        error_msg = "Tag rejected\ncommand. Wrong pwd\nor not a 8268 chip?";
+        error_msg = "Auth rejected.\nWrong password\nor not 8268?";
         break;
     case HitagSResultCrcError:
-        error_msg = "CRC error in\ncommunication.";
+        error_msg = "CRC error.\nTry again.";
         break;
     default:
         error_msg = "Unknown error.\nTry again.";
