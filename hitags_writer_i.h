@@ -63,6 +63,8 @@ typedef enum {
     HitagSEventWriteUidFailed,
     HitagSEventDumpOk,
     HitagSEventDumpFailed,
+    HitagSEventCloneOk,
+    HitagSEventCloneFailed,
 } HitagSCustomEvent;
 
 /* --- Views --- */
@@ -83,6 +85,7 @@ typedef enum {
     HitagSWorkerReadPages,
     HitagSWorkerWriteUid,
     HitagSWorkerFullDump,
+    HitagSWorkerCloneDump,  /* Write loaded dump to tag (UID + config + data) */
 } HitagSWorkerOp;
 
 /* --- Main App Structure --- */
@@ -129,6 +132,13 @@ struct HitagSApp {
 
     /* UID input buffer (4 bytes displayed as hex for ByteInput) */
     uint8_t uid_input[4];              /**< 4 bytes UID for ByteInput widget */
+
+    /* Clone from dump data */
+    uint32_t clone_uid;                /**< UID from loaded dump to clone */
+    uint32_t clone_config;             /**< Config from loaded dump */
+    uint32_t clone_pages[HITAG_S_MAX_PAGES]; /**< Page data from loaded dump */
+    uint8_t  clone_addrs[HITAG_S_MAX_PAGES]; /**< Addresses of pages to write */
+    size_t   clone_count;              /**< Number of pages to write */
 
     /* Text buffers */
     char text_store[HITAGS_WRITER_TEXT_STORE_SIZE + 1];

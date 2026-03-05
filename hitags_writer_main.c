@@ -237,6 +237,46 @@ static int32_t hitags_writer_worker_thread(void* context) {
                 HITAGS_WORKER_FLAG_STOP, FuriFlagWaitAny, 200);
             if(wait != (uint32_t)FuriFlagErrorTimeout) break;
         }
+    } else if(app->worker_op == HitagSWorkerCloneDump) {
+        /* CloneDump: write loaded dump data to 8268 (UID + config + data pages) */
+        FURI_LOG_I(TAG, "Worker: Cloning dump UID=%08lX, %d pages...",
+            (unsigned long)app->clone_uid, (int)app->clone_count);
+
+        int attempts = 0;
+        const int max_attempts = 15;
+
+        while(true) {
+            uint32_t flags = furi_thread_flags_get();
+            if(flags & HITAGS_WORKER_FLAG_STOP) break;
+
+            attempts++;
+
+            app->last_result = hitag_s_8268_clone_sequence(
+                app->password,
+                app->clone_uid,
+                app->clone_config,
+                app->clone_pages,
+                app->clone_addrs,
+                app->clone_count);
+
+            if(app->last_result == HitagSResultOk) {
+                FURI_LOG_I(TAG, "Worker: Clone OK (attempt %d)", attempts);
+                view_dispatcher_send_custom_event(
+                    app->view_dispatcher, HitagSEventCloneOk);
+                break;
+            }
+
+            if(attempts >= max_attempts) {
+                FURI_LOG_W(TAG, "Worker: Clone failed after %d attempts", attempts);
+                view_dispatcher_send_custom_event(
+                    app->view_dispatcher, HitagSEventCloneFailed);
+                break;
+            }
+
+            uint32_t wait2 = furi_thread_flags_wait(
+                HITAGS_WORKER_FLAG_STOP, FuriFlagWaitAny, 200);
+            if(wait2 != (uint32_t)FuriFlagErrorTimeout) break;
+        }
     }
 
     return 0;

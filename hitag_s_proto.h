@@ -369,6 +369,53 @@ HitagSResult hitag_s_write_uid(uint32_t new_uid);
  */
 bool hitag_s_page_writable(uint32_t config_val, uint8_t page);
 
+/**
+ * @brief Save tag dump to file in Flipper Format
+ *
+ * File format (.hts):
+ *   Filetype: HiTag S 8268 Dump
+ *   Version: 1
+ *   UID: AA BB CC DD
+ *   Max Page: 63
+ *   Page 0: AA BB CC DD
+ *   Page 1: 06 24 00 40
+ *   ...
+ *
+ * @param storage     Storage service pointer
+ * @param path        File path to save to
+ * @param uid         Tag UID
+ * @param pages       Array of page data
+ * @param page_valid  Array of validity flags
+ * @param max_page    Maximum page number
+ * @return true on success
+ */
+bool hitag_s_dump_save(
+    void* storage,
+    const char* path,
+    uint32_t uid,
+    const uint32_t* pages,
+    const bool* page_valid,
+    int max_page);
+
+/**
+ * @brief Load tag dump from file
+ *
+ * @param storage     Storage service pointer
+ * @param path        File path to load from
+ * @param uid         Output: tag UID
+ * @param pages       Output: array of at least 64 uint32_t
+ * @param page_valid  Output: array of at least 64 bool
+ * @param max_page    Output: max page number
+ * @return true on success
+ */
+bool hitag_s_dump_load(
+    void* storage,
+    const char* path,
+    uint32_t* uid,
+    uint32_t* pages,
+    bool* page_valid,
+    int* max_page);
+
 #ifdef __cplusplus
 }
 #endif
