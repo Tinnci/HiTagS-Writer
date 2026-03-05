@@ -37,8 +37,8 @@
 #include <hitags_writer_icons.h>
 
 #define HITAGS_WRITER_TEXT_STORE_SIZE 64
-#define HITAGS_WRITER_APP_FOLDER     EXT_PATH("lfrfid")
-#define HITAGS_WRITER_APP_EXTENSION  ".rfid"
+#define HITAGS_WRITER_APP_FOLDER      EXT_PATH("lfrfid")
+#define HITAGS_WRITER_APP_EXTENSION   ".rfid"
 
 /* EM4100 ID is 5 bytes */
 #define EM4100_ID_SIZE 5
@@ -85,7 +85,7 @@ typedef enum {
     HitagSWorkerReadPages,
     HitagSWorkerWriteUid,
     HitagSWorkerFullDump,
-    HitagSWorkerCloneDump,  /* Write loaded dump to tag (UID + config + data) */
+    HitagSWorkerCloneDump, /* Write loaded dump to tag (UID + config + data) */
 } HitagSWorkerOp;
 
 /* --- Main App Structure --- */
@@ -117,28 +117,28 @@ struct HitagSApp {
 
     /* Working data */
     uint8_t em4100_id[EM4100_ID_SIZE]; /**< Target EM4100 ID to write */
-    uint8_t read_id[EM4100_ID_SIZE];   /**< Last read EM4100 ID from tag */
-    uint32_t read_pages[3];            /**< Last read page data [config, data_hi, data_lo] */
-    uint32_t tag_uid;                  /**< Last read tag UID */
-    uint32_t target_uid;               /**< Target UID to write (for WriteUid) */
-    uint32_t password;                 /**< Authentication password */
-    HitagSResult last_result;          /**< Last operation result */
+    uint8_t read_id[EM4100_ID_SIZE]; /**< Last read EM4100 ID from tag */
+    uint32_t read_pages[3]; /**< Last read page data [config, data_hi, data_lo] */
+    uint32_t tag_uid; /**< Last read tag UID */
+    uint32_t target_uid; /**< Target UID to write (for WriteUid) */
+    uint32_t password; /**< Authentication password */
+    HitagSResult last_result; /**< Last operation result */
 
     /* Full dump data */
     uint32_t dump_pages[HITAG_S_MAX_PAGES]; /**< Full page dump storage */
-    bool dump_valid[HITAG_S_MAX_PAGES];     /**< Which pages were read */
-    int dump_max_page;                       /**< Max page detected */
-    int dump_read_count;                     /**< Pages successfully read */
+    bool dump_valid[HITAG_S_MAX_PAGES]; /**< Which pages were read */
+    int dump_max_page; /**< Max page detected */
+    int dump_read_count; /**< Pages successfully read */
 
     /* UID input buffer (4 bytes displayed as hex for ByteInput) */
-    uint8_t uid_input[4];              /**< 4 bytes UID for ByteInput widget */
+    uint8_t uid_input[4]; /**< 4 bytes UID for ByteInput widget */
 
     /* Clone from dump data */
-    uint32_t clone_uid;                /**< UID from loaded dump to clone */
-    uint32_t clone_config;             /**< Config from loaded dump */
+    uint32_t clone_uid; /**< UID from loaded dump to clone */
+    uint32_t clone_config; /**< Config from loaded dump */
     uint32_t clone_pages[HITAG_S_MAX_PAGES]; /**< Page data from loaded dump */
-    uint8_t  clone_addrs[HITAG_S_MAX_PAGES]; /**< Addresses of pages to write */
-    size_t   clone_count;              /**< Number of pages to write */
+    uint8_t clone_addrs[HITAG_S_MAX_PAGES]; /**< Addresses of pages to write */
+    size_t clone_count; /**< Number of pages to write */
 
     /* Text buffers */
     char text_store[HITAGS_WRITER_TEXT_STORE_SIZE + 1];

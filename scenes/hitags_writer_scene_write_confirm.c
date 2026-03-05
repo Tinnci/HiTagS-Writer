@@ -5,9 +5,7 @@
 
 #include "../hitags_writer_i.h"
 
-static void hitags_writer_scene_write_confirm_callback(
-    DialogExResult result,
-    void* context) {
+static void hitags_writer_scene_write_confirm_callback(DialogExResult result, void* context) {
     HitagSApp* app = context;
     view_dispatcher_send_custom_event(app->view_dispatcher, result);
 }
@@ -18,11 +16,7 @@ void hitags_writer_scene_write_confirm_on_enter(void* context) {
 
     char id_str[16];
     em4100_id_to_string(app->em4100_id, id_str);
-    snprintf(
-        app->text_store,
-        sizeof(app->text_store),
-        "Write EM4100\n%s\nto 8268 tag?",
-        id_str);
+    snprintf(app->text_store, sizeof(app->text_store), "Write EM4100\n%s\nto 8268 tag?", id_str);
 
     dialog_ex_set_header(dialog_ex, "Confirm Write", 64, 0, AlignCenter, AlignTop);
     dialog_ex_set_text(dialog_ex, app->text_store, 64, 16, AlignCenter, AlignTop);

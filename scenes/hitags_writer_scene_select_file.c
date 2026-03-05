@@ -9,13 +9,12 @@ void hitags_writer_scene_select_file_on_enter(void* context) {
     HitagSApp* app = context;
 
     DialogsFileBrowserOptions browser_options;
-    dialog_file_browser_set_basic_options(
-        &browser_options, HITAGS_WRITER_APP_EXTENSION, NULL);
+    dialog_file_browser_set_basic_options(&browser_options, HITAGS_WRITER_APP_EXTENSION, NULL);
     browser_options.base_path = HITAGS_WRITER_APP_FOLDER;
     browser_options.hide_dot_files = true;
 
-    bool result = dialog_file_browser_show(
-        app->dialogs, app->file_path, app->file_path, &browser_options);
+    bool result =
+        dialog_file_browser_show(app->dialogs, app->file_path, app->file_path, &browser_options);
 
     if(result) {
         /* Try to load the file as LFRFID protocol data */

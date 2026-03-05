@@ -11,8 +11,7 @@ void hitags_writer_scene_write_fail_on_enter(void* context) {
 
     widget_add_icon_element(widget, 83, 22, &I_WarningDolphinFlip_45x42);
 
-    widget_add_string_element(
-        widget, 40, 5, AlignCenter, AlignTop, FontPrimary, "Write Failed!");
+    widget_add_string_element(widget, 40, 5, AlignCenter, AlignTop, FontPrimary, "Write Failed!");
 
     const char* error_msg;
     switch(app->last_result) {

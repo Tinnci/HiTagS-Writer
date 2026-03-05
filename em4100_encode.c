@@ -26,8 +26,8 @@
  * CON0 byte: RES5[7] RES4[6] RES3[5] RES2[4] RES1[3] RES0[2] MEMT[1:0]
  *   RES0 must be 0 for standard TTF mode (combined with TTFM).
  */
-#define EM4100_TTF_CON1_MASK  0xFC  /* Bits to modify: auth, TTFC, TTFDR, TTFM */
-#define EM4100_TTF_CON1_VALUE 0x24  /* 0b00100100: auth=0, TTFC=0, TTFDR=10, TTFM=01 */
+#define EM4100_TTF_CON1_MASK     0xFC /* Bits to modify: auth, TTFC, TTFDR, TTFM */
+#define EM4100_TTF_CON1_VALUE    0x24 /* 0b00100100: auth=0, TTFC=0, TTFDR=10, TTFM=01 */
 #define EM4100_TTF_CON0_RES0_BIT 0x04 /* RES0 = bit 2 of CON0, must be 0 */
 
 static bool get_parity(uint16_t data) {
@@ -115,14 +115,16 @@ uint32_t em4100_config_set_ttf(uint32_t current_config) {
     /* Modify CON1: set TTF fields, preserve LCON and LKP */
     con1 = (con1 & ~EM4100_TTF_CON1_MASK) | (EM4100_TTF_CON1_VALUE & EM4100_TTF_CON1_MASK);
 
-    uint32_t new_config = (current_config & 0x0000FFFF) | ((uint32_t)con0 << 24) | ((uint32_t)con1 << 16);
+    uint32_t new_config = (current_config & 0x0000FFFF) | ((uint32_t)con0 << 24) |
+                          ((uint32_t)con1 << 16);
 
     FURI_LOG_I(
         TAG,
         "Config TTF set: %08lX -> %08lX (CON0=%02X CON1=%02X)",
         (unsigned long)current_config,
         (unsigned long)new_config,
-        con0, con1);
+        con0,
+        con1);
 
     return new_config;
 }

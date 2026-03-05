@@ -75,15 +75,10 @@ void hitags_writer_scene_start_on_enter(void* context) {
         app);
 
     submenu_add_item(
-        submenu,
-        "About",
-        SubmenuIndexAbout,
-        hitags_writer_scene_start_submenu_callback,
-        app);
+        submenu, "About", SubmenuIndexAbout, hitags_writer_scene_start_submenu_callback, app);
 
     submenu_set_selected_item(
-        submenu,
-        scene_manager_get_scene_state(app->scene_manager, HitagSSceneStart));
+        submenu, scene_manager_get_scene_state(app->scene_manager, HitagSSceneStart));
 
     view_dispatcher_switch_to_view(app->view_dispatcher, HitagSViewSubmenu);
 }

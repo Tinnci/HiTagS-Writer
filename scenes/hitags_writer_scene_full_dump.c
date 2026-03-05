@@ -20,7 +20,9 @@ typedef enum {
 static void hitags_writer_scene_full_dump_save_file(HitagSApp* app) {
     /* Generate filename from UID */
     FuriString* filename = furi_string_alloc();
-    furi_string_printf(filename, "%s/HiTagS_%08lX%s",
+    furi_string_printf(
+        filename,
+        "%s/HiTagS_%08lX%s",
         HITAGS_DUMP_FOLDER,
         (unsigned long)app->tag_uid,
         HITAGS_DUMP_EXTENSION);
@@ -83,8 +85,8 @@ bool hitags_writer_scene_full_dump_on_event(void* context, SceneManagerEvent eve
     bool consumed = false;
 
     if(event.type == SceneManagerEventTypeCustom) {
-        FullDumpState state = scene_manager_get_scene_state(
-            app->scene_manager, HitagSSceneFullDump);
+        FullDumpState state =
+            scene_manager_get_scene_state(app->scene_manager, HitagSSceneFullDump);
 
         if(event.event == HitagSEventDumpOk) {
             hitags_writer_worker_stop(app);
@@ -176,8 +178,7 @@ bool hitags_writer_scene_full_dump_on_event(void* context, SceneManagerEvent eve
             FURI_LOG_I("Dump", "UID: %08lX", (unsigned long)app->tag_uid);
             for(int p = 0; p <= app->dump_max_page; p++) {
                 if(app->dump_valid[p]) {
-                    FURI_LOG_I("Dump", "Page[%2d]: %08lX",
-                        p, (unsigned long)app->dump_pages[p]);
+                    FURI_LOG_I("Dump", "Page[%2d]: %08lX", p, (unsigned long)app->dump_pages[p]);
                 } else {
                     FURI_LOG_I("Dump", "Page[%2d]: --------", p);
                 }
@@ -192,7 +193,8 @@ bool hitags_writer_scene_full_dump_on_event(void* context, SceneManagerEvent eve
             Popup* popup = app->popup;
             popup_reset(popup);
             popup_set_header(popup, "Dumping Tag...", 89, 30, AlignCenter, AlignTop);
-            popup_set_text(popup, "Reading all pages\nfrom 8268 tag", 89, 43, AlignCenter, AlignTop);
+            popup_set_text(
+                popup, "Reading all pages\nfrom 8268 tag", 89, 43, AlignCenter, AlignTop);
             popup_set_icon(popup, 0, 3, &I_NFC_manual_60x50);
             scene_manager_set_scene_state(
                 app->scene_manager, HitagSSceneFullDump, FullDumpStateScanning);

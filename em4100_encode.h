@@ -19,8 +19,8 @@ extern "C" {
  * @brief EM4100 data ready to be written to HiTag S pages
  */
 typedef struct {
-    uint32_t data_hi;     /**< Upper 32 bits of Manchester-encoded EM4100 data (page 4) */
-    uint32_t data_lo;     /**< Lower 32 bits of Manchester-encoded EM4100 data (page 5) */
+    uint32_t data_hi; /**< Upper 32 bits of Manchester-encoded EM4100 data (page 4) */
+    uint32_t data_lo; /**< Lower 32 bits of Manchester-encoded EM4100 data (page 5) */
 } Em4100HitagData;
 
 /**

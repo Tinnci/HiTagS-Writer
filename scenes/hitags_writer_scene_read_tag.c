@@ -101,7 +101,8 @@ bool hitags_writer_scene_read_tag_on_event(void* context, SceneManagerEvent even
             /* Retry: restart worker */
             widget_reset(app->widget);
             popup_set_header(app->popup, "Reading...", 89, 30, AlignCenter, AlignTop);
-            popup_set_text(app->popup, "Place 8268 tag on\nFlipper's back", 89, 43, AlignCenter, AlignTop);
+            popup_set_text(
+                app->popup, "Place 8268 tag on\nFlipper's back", 89, 43, AlignCenter, AlignTop);
             popup_set_icon(app->popup, 0, 3, &I_NFC_manual_60x50);
             view_dispatcher_switch_to_view(app->view_dispatcher, HitagSViewPopup);
             notification_message(app->notifications, &sequence_blink_start_cyan);

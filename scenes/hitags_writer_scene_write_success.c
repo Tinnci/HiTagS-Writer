@@ -33,8 +33,7 @@ bool hitags_writer_scene_write_success_on_event(void* context, SceneManagerEvent
     const uint32_t prev_scenes[] = {HitagSSceneStart};
 
     if((event.type == SceneManagerEventTypeBack) ||
-       ((event.type == SceneManagerEventTypeCustom) &&
-        (event.event == HitagSEventPopupClosed))) {
+       ((event.type == SceneManagerEventTypeCustom) && (event.event == HitagSEventPopupClosed))) {
         scene_manager_search_and_switch_to_previous_scene_one_of(
             app->scene_manager, prev_scenes, COUNT_OF(prev_scenes));
         consumed = true;

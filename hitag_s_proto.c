@@ -151,7 +151,6 @@ static size_t hitag_s_decode_ac2k(
     uint8_t* out_data,
     size_t max_bits,
     size_t sof_bits) {
-
     memset(out_data, 0, (max_bits + 7) / 8);
 
     int lastbit = 0;
@@ -178,9 +177,9 @@ static size_t hitag_s_decode_ac2k(
         /* Log first 10 periods for debugging */
         if(period_count < 10) {
             const char* cls = (rb >= HITAG_S_AC2K_THRESH_34_US) ? "4H" :
-                              (rb >= HITAG_S_AC2K_THRESH_23_US) ? "3H" : "2H";
-            FURI_LOG_I(TAG, "AC2K p[%d]: %lu (%s)",
-                (int)period_count, (unsigned long)rb, cls);
+                              (rb >= HITAG_S_AC2K_THRESH_23_US) ? "3H" :
+                                                                  "2H";
+            FURI_LOG_I(TAG, "AC2K p[%d]: %lu (%s)", (int)period_count, (unsigned long)rb, cls);
         }
         period_count++;
 
@@ -222,15 +221,25 @@ static size_t hitag_s_decode_ac2k(
         }
     }
 
-    FURI_LOG_I(TAG, "AC2K: %d edges, %d periods -> %d bits (%d SOF + %d data)",
-        (int)cap->edge_count, (int)period_count, (int)total_bits,
-        (int)sof_bits, (int)data_bits);
+    FURI_LOG_I(
+        TAG,
+        "AC2K: %d edges, %d periods -> %d bits (%d SOF + %d data)",
+        (int)cap->edge_count,
+        (int)period_count,
+        (int)total_bits,
+        (int)sof_bits,
+        (int)data_bits);
 
     if(data_bits > 0) {
         size_t bytes = (data_bits + 7) / 8;
         if(bytes >= 4) {
-            FURI_LOG_D(TAG, "AC2K data: %02X %02X %02X %02X (%d bits)",
-                out_data[0], out_data[1], out_data[2], out_data[3],
+            FURI_LOG_D(
+                TAG,
+                "AC2K data: %02X %02X %02X %02X (%d bits)",
+                out_data[0],
+                out_data[1],
+                out_data[2],
+                out_data[3],
                 (int)data_bits);
         }
     }
@@ -276,8 +285,8 @@ static size_t hitag_s_decode_mc4k(
 
     uint32_t glitch_min = (threshold > 200) ? 80 : HITAG_S_MC4K_GLITCH_US;
 
-    FURI_LOG_D(TAG, "MC: threshold=%lu, glitch=%lu",
-        (unsigned long)threshold, (unsigned long)glitch_min);
+    FURI_LOG_D(
+        TAG, "MC: threshold=%lu, glitch=%lu", (unsigned long)threshold, (unsigned long)glitch_min);
 
     /* --- Step 1-2: Extract pulse sequence from capture events ---
      * CC3 (level=true):  HIGH pulse duration (COMP1 HIGH time)
@@ -321,8 +330,11 @@ static size_t hitag_s_decode_mc4k(
         if(!started) {
             /* First pair: carrier HIGH → skip, keep LOW as SOF start */
             started = true;
-            FURI_LOG_D(TAG, "MC: initial carrier H=%lu, SOF start L=%lu",
-                (unsigned long)high_dur, (unsigned long)low_dur);
+            FURI_LOG_D(
+                TAG,
+                "MC: initial carrier H=%lu, SOF start L=%lu",
+                (unsigned long)high_dur,
+                (unsigned long)low_dur);
             if(low_dur >= glitch_min && hp_count < MC4K_MAX_HALF_PERIODS) {
                 size_t n = (low_dur < threshold) ? 1 : 2;
                 for(size_t j = 0; j < n && hp_count < MC4K_MAX_HALF_PERIODS; j++) {
@@ -352,8 +364,7 @@ static size_t hitag_s_decode_mc4k(
         hp_levels[hp_count++] = true;
     }
 
-    FURI_LOG_D(TAG, "MC: %d half-periods from %d edges",
-        (int)hp_count, (int)cap->edge_count);
+    FURI_LOG_D(TAG, "MC: %d half-periods from %d edges", (int)hp_count, (int)cap->edge_count);
 
     /* --- Step 3-4: Pair half-periods into bits ---
      * bit value = 1 if second half is HIGH, 0 if second half is LOW */
@@ -374,15 +385,25 @@ static size_t hitag_s_decode_mc4k(
         }
     }
 
-    FURI_LOG_I(TAG, "MC4K: %d edges -> %d hp -> %d bits (%d SOF + %d data)",
-        (int)cap->edge_count, (int)hp_count, (int)total_bits,
-        (int)sof_bits, (int)data_bits);
+    FURI_LOG_I(
+        TAG,
+        "MC4K: %d edges -> %d hp -> %d bits (%d SOF + %d data)",
+        (int)cap->edge_count,
+        (int)hp_count,
+        (int)total_bits,
+        (int)sof_bits,
+        (int)data_bits);
 
     if(data_bits > 0) {
         size_t bytes = (data_bits + 7) / 8;
         if(bytes >= 4) {
-            FURI_LOG_D(TAG, "MC4K data: %02X %02X %02X %02X (%d bits)",
-                out_data[0], out_data[1], out_data[2], out_data[3],
+            FURI_LOG_D(
+                TAG,
+                "MC4K data: %02X %02X %02X %02X (%d bits)",
+                out_data[0],
+                out_data[1],
+                out_data[2],
+                out_data[3],
                 (int)data_bits);
         }
     }
@@ -417,7 +438,6 @@ static size_t hitag_s_send_receive(
     uint32_t rx_timeout_us,
     HitagSRxMode rx_mode,
     size_t sof_bits) {
-
     /* Send command in critical section (interrupts disabled = precise timing) */
     FURI_CRITICAL_ENTER();
     hitag_s_send_frame(tx_data, tx_bits);
@@ -516,15 +536,15 @@ static void pack_bits(uint8_t* buf, size_t* bit_pos, uint32_t value, size_t n_bi
  * STD mode has simpler framing (SOF=1), ADV has longer SOF and CRC on responses.
  */
 typedef struct {
-    uint8_t cmd_5bit;   /* 5-bit command value for pack_bits */
+    uint8_t cmd_5bit; /* 5-bit command value for pack_bits */
     const char* name;
-    size_t uid_sof;     /* SOF bits in AC2K UID response */
-    size_t data_sof;    /* SOF bits in MC4K data exchange */
+    size_t uid_sof; /* SOF bits in AC2K UID response */
+    size_t data_sof; /* SOF bits in MC4K data exchange */
 } HitagSProtoMode;
 
 static const HitagSProtoMode proto_modes[] = {
-    {0x06, "STD",  1, 1},  /* UID_REQ_STD (00110): SOF=1 everywhere */
-    {0x18, "ADV2", 3, 6},  /* UID_REQ_ADV2 (11000): SOF=3 for UID, 6 for data */
+    {0x06, "STD", 1, 1}, /* UID_REQ_STD (00110): SOF=1 everywhere */
+    {0x18, "ADV2", 3, 6}, /* UID_REQ_ADV2 (11000): SOF=3 for UID, 6 for data */
 };
 static size_t active_mode_idx = 0;
 
@@ -533,9 +553,9 @@ static inline size_t hitag_s_data_sof(void) {
 }
 
 /* Receive timeouts */
-#define HITAG_S_RX_TIMEOUT_UID    25000  /* AC2K UID response (~18ms + margin) */
-#define HITAG_S_RX_TIMEOUT_DATA   15000  /* MC4K 32-bit response (~10ms + margin) */
-#define HITAG_S_RX_TIMEOUT_ACK     5000  /* MC4K ACK response (~2.5ms + margin) */
+#define HITAG_S_RX_TIMEOUT_UID  25000 /* AC2K UID response (~18ms + margin) */
+#define HITAG_S_RX_TIMEOUT_DATA 15000 /* MC4K 32-bit response (~10ms + margin) */
+#define HITAG_S_RX_TIMEOUT_ACK  5000 /* MC4K ACK response (~2.5ms + margin) */
 
 HitagSResult hitag_s_uid_request(uint32_t* uid) {
     /* Try STD mode first (simplest framing), then ADV2 (which we know works) */
@@ -544,8 +564,11 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
         size_t bit_pos = 0;
         pack_bits(cmd, &bit_pos, proto_modes[c].cmd_5bit, 5);
 
-        FURI_LOG_I(TAG, "TX: UID_REQ_%s (5 bits, val=0x%02X)",
-            proto_modes[c].name, proto_modes[c].cmd_5bit);
+        FURI_LOG_I(
+            TAG,
+            "TX: UID_REQ_%s (5 bits, val=0x%02X)",
+            proto_modes[c].name,
+            proto_modes[c].cmd_5bit);
 
         uint32_t prev_uid = 0;
         size_t stable_count = 0;
@@ -557,17 +580,11 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
             /* UID response is AC2K per Hitag S anti-collision; use MC2K as fallback
              * for clone variants that may answer with Manchester-like timing. */
             size_t rx_bits = hitag_s_send_receive(
-                cmd, 5, rx, 32,
-                HITAG_S_RX_TIMEOUT_UID,
-                HitagSRxAC2K,
-                proto_modes[c].uid_sof);
+                cmd, 5, rx, 32, HITAG_S_RX_TIMEOUT_UID, HitagSRxAC2K, proto_modes[c].uid_sof);
 
             if(rx_bits < 32) {
                 rx_bits = hitag_s_send_receive(
-                    cmd, 5, rx, 32,
-                    HITAG_S_RX_TIMEOUT_UID,
-                    HitagSRxMC2K,
-                    proto_modes[c].uid_sof);
+                    cmd, 5, rx, 32, HITAG_S_RX_TIMEOUT_UID, HitagSRxMC2K, proto_modes[c].uid_sof);
             }
 
             if(rx_bits >= 32) {
@@ -582,7 +599,9 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
                 }
                 prev_uid = current_uid;
 
-                FURI_LOG_D(TAG, "%s UID try %d: %08lX (stable=%d)",
+                FURI_LOG_D(
+                    TAG,
+                    "%s UID try %d: %08lX (stable=%d)",
                     proto_modes[c].name,
                     (int)(attempt + 1),
                     (unsigned long)current_uid,
@@ -591,8 +610,11 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
                 if(stable_count >= 2) {
                     *uid = current_uid;
                     active_mode_idx = c;
-                    FURI_LOG_I(TAG, "UID: %08lX (via %s mode, stable)",
-                        (unsigned long)*uid, proto_modes[c].name);
+                    FURI_LOG_I(
+                        TAG,
+                        "UID: %08lX (via %s mode, stable)",
+                        (unsigned long)*uid,
+                        proto_modes[c].name);
                     return HitagSResultOk;
                 }
             }
@@ -631,10 +653,7 @@ HitagSResult hitag_s_select(uint32_t uid, uint32_t* config) {
     /* Combined send + receive — MC4K response with config page */
     uint8_t rx[5] = {0}; /* 32 config + possibly 8 CRC in ADV mode */
     size_t rx_bits = hitag_s_send_receive(
-        cmd, 45, rx, 40,
-        HITAG_S_RX_TIMEOUT_DATA,
-        HitagSRxMC4K,
-        hitag_s_data_sof());
+        cmd, 45, rx, 40, HITAG_S_RX_TIMEOUT_DATA, HitagSRxMC4K, hitag_s_data_sof());
 
     if(rx_bits < 32) {
         FURI_LOG_W(TAG, "SELECT: only %d bits received", (int)rx_bits);
@@ -652,8 +671,8 @@ HitagSResult hitag_s_select(uint32_t uid, uint32_t* config) {
         FURI_LOG_D(TAG, "SELECT: ADV CRC OK (%02X)", rx_crc);
     }
 
-    *config = ((uint32_t)rx[0] << 24) | ((uint32_t)rx[1] << 16) |
-              ((uint32_t)rx[2] << 8) | (uint32_t)rx[3];
+    *config = ((uint32_t)rx[0] << 24) | ((uint32_t)rx[1] << 16) | ((uint32_t)rx[2] << 8) |
+              (uint32_t)rx[3];
 
     FURI_LOG_I(TAG, "Config page: %08lX", (unsigned long)*config);
     return HitagSResultOk;
@@ -681,10 +700,7 @@ HitagSResult hitag_s_8268_authenticate(uint32_t password) {
     /* Combined send + receive for ACK — MC4K */
     uint8_t ack[1] = {0};
     size_t ack_bits = hitag_s_send_receive(
-        cmd, 20, ack, 8,
-        HITAG_S_RX_TIMEOUT_ACK,
-        HitagSRxMC4K,
-        hitag_s_data_sof());
+        cmd, 20, ack, 8, HITAG_S_RX_TIMEOUT_ACK, HitagSRxMC4K, hitag_s_data_sof());
 
     if(ack_bits < 2) {
         FURI_LOG_W(TAG, "AUTH step 1: no ACK (%d bits)", (int)ack_bits);
@@ -716,10 +732,7 @@ HitagSResult hitag_s_8268_authenticate(uint32_t password) {
     /* Combined send + receive for ACK — MC4K */
     uint8_t ack2[1] = {0};
     size_t ack2_bits = hitag_s_send_receive(
-        pwd_frame, 40, ack2, 8,
-        HITAG_S_RX_TIMEOUT_ACK,
-        HitagSRxMC4K,
-        hitag_s_data_sof());
+        pwd_frame, 40, ack2, 8, HITAG_S_RX_TIMEOUT_ACK, HitagSRxMC4K, hitag_s_data_sof());
 
     if(ack2_bits < 2) {
         FURI_LOG_W(TAG, "AUTH step 2: no ACK (%d bits)", (int)ack2_bits);
@@ -753,10 +766,7 @@ HitagSResult hitag_s_write_page(uint8_t page, uint32_t data) {
     /* Combined send + receive for ACK — MC4K */
     uint8_t ack[1] = {0};
     size_t ack_bits = hitag_s_send_receive(
-        cmd, 20, ack, 8,
-        HITAG_S_RX_TIMEOUT_ACK,
-        HitagSRxMC4K,
-        hitag_s_data_sof());
+        cmd, 20, ack, 8, HITAG_S_RX_TIMEOUT_ACK, HitagSRxMC4K, hitag_s_data_sof());
 
     if(ack_bits < 2) {
         FURI_LOG_W(TAG, "WRITE_PAGE addr=%d: no ACK", page);
@@ -776,18 +786,17 @@ HitagSResult hitag_s_write_page(uint8_t page, uint32_t data) {
     uint8_t data_crc = hitag_s_crc8(data_frame, 32);
     pack_bits(data_frame, &data_pos, data_crc, 8);
 
-    FURI_LOG_D(
-        TAG,
-        "TX: Data=%08lX CRC=%02X (40 bits)",
-        (unsigned long)data,
-        data_crc);
+    FURI_LOG_D(TAG, "TX: Data=%08lX CRC=%02X (40 bits)", (unsigned long)data, data_crc);
 
     furi_delay_us(HITAG_S_T_WAIT_SC_US);
 
     /* Combined send + receive — timeout includes programming time */
     uint8_t ack2[1] = {0};
     size_t ack2_bits = hitag_s_send_receive(
-        data_frame, 40, ack2, 8,
+        data_frame,
+        40,
+        ack2,
+        8,
         HITAG_S_T_PROG_US + HITAG_S_RX_TIMEOUT_ACK,
         HitagSRxMC4K,
         hitag_s_data_sof());
@@ -825,10 +834,7 @@ HitagSResult hitag_s_read_page(uint8_t page, uint32_t* data) {
     /* Combined send + receive — MC4K response with page data */
     uint8_t rx[5] = {0}; /* 32 data + possibly 8 CRC in ADV mode */
     size_t rx_bits = hitag_s_send_receive(
-        cmd, 20, rx, 40,
-        HITAG_S_RX_TIMEOUT_DATA,
-        HitagSRxMC4K,
-        hitag_s_data_sof());
+        cmd, 20, rx, 40, HITAG_S_RX_TIMEOUT_DATA, HitagSRxMC4K, hitag_s_data_sof());
 
     if(rx_bits < 32) {
         FURI_LOG_W(TAG, "READ_PAGE addr=%d: only %d bits received", page, (int)rx_bits);
@@ -840,14 +846,14 @@ HitagSResult hitag_s_read_page(uint8_t page, uint32_t* data) {
         uint8_t rx_crc = rx[4];
         uint8_t calc_crc = hitag_s_crc8(rx, 32);
         if(rx_crc != calc_crc) {
-            FURI_LOG_W(TAG, "READ_PAGE addr=%d: CRC mismatch (rx=%02X calc=%02X)",
-                page, rx_crc, calc_crc);
+            FURI_LOG_W(
+                TAG, "READ_PAGE addr=%d: CRC mismatch (rx=%02X calc=%02X)", page, rx_crc, calc_crc);
             return HitagSResultCrcError;
         }
     }
 
-    *data = ((uint32_t)rx[0] << 24) | ((uint32_t)rx[1] << 16) |
-            ((uint32_t)rx[2] << 8) | (uint32_t)rx[3];
+    *data = ((uint32_t)rx[0] << 24) | ((uint32_t)rx[1] << 16) | ((uint32_t)rx[2] << 8) |
+            (uint32_t)rx[3];
 
     FURI_LOG_I(TAG, "READ_PAGE addr=%d: %08lX", page, (unsigned long)*data);
     return HitagSResultOk;
@@ -1003,7 +1009,9 @@ HitagSResult hitag_s_8268_write_em4100_sequence(
         return result;
     }
 
-    FURI_LOG_I(TAG, "EM4100 write: SUCCESS! Config=%08lX Data=%08lX %08lX",
+    FURI_LOG_I(
+        TAG,
+        "EM4100 write: SUCCESS! Config=%08lX Data=%08lX %08lX",
         (unsigned long)new_config,
         (unsigned long)em_data->data_hi,
         (unsigned long)em_data->data_lo);
@@ -1094,8 +1102,12 @@ HitagSResult hitag_s_write_page_verify(uint8_t page, uint32_t data) {
     }
 
     if((readback & mask) != (data & mask)) {
-        FURI_LOG_E(TAG, "VERIFY page %d: MISMATCH wrote=%08lX read=%08lX",
-            page, (unsigned long)data, (unsigned long)readback);
+        FURI_LOG_E(
+            TAG,
+            "VERIFY page %d: MISMATCH wrote=%08lX read=%08lX",
+            page,
+            (unsigned long)data,
+            (unsigned long)readback);
         return HitagSResultError;
     }
 
@@ -1110,8 +1122,8 @@ HitagSResult hitag_s_write_page_verify(uint8_t page, uint32_t data) {
 HitagSResult hitag_s_8268_authenticate_multi(const uint32_t* passwords, size_t count) {
     /* Default passwords to try if none provided */
     static const uint32_t default_passwords[] = {
-        HITAG_S_8268_PASSWORD,      /* 0xBBDD3399 — standard 8268 password */
-        HITAG_S_8268_PASSWORD_ALT,  /* 0x4D494B52 — "MIKR" alternate */
+        HITAG_S_8268_PASSWORD, /* 0xBBDD3399 — standard 8268 password */
+        HITAG_S_8268_PASSWORD_ALT, /* 0x4D494B52 — "MIKR" alternate */
     };
 
     const uint32_t* pwd_list = passwords;
@@ -1123,8 +1135,12 @@ HitagSResult hitag_s_8268_authenticate_multi(const uint32_t* passwords, size_t c
     }
 
     for(size_t i = 0; i < pwd_count; i++) {
-        FURI_LOG_I(TAG, "Auth attempt %d/%d with password %08lX",
-            (int)(i + 1), (int)pwd_count, (unsigned long)pwd_list[i]);
+        FURI_LOG_I(
+            TAG,
+            "Auth attempt %d/%d with password %08lX",
+            (int)(i + 1),
+            (int)pwd_count,
+            (unsigned long)pwd_list[i]);
 
         HitagSResult result = hitag_s_8268_authenticate(pwd_list[i]);
         if(result == HitagSResultOk) {
@@ -1197,7 +1213,6 @@ HitagSResult hitag_s_8268_read_all(
     bool* page_valid,
     int* max_page_out,
     uint32_t* uid_out) {
-
     uint32_t uid = 0;
     uint32_t config = 0;
 
@@ -1305,7 +1320,6 @@ HitagSResult hitag_s_8268_clone_sequence(
     const uint32_t* data_pages,
     const uint8_t* data_addrs,
     size_t data_count) {
-
     uint32_t uid = 0;
     uint32_t current_config = 0;
 
@@ -1319,8 +1333,11 @@ HitagSResult hitag_s_8268_clone_sequence(
         return result;
     }
 
-    FURI_LOG_I(TAG, "Clone: target current UID=%08lX, will write new UID=%08lX",
-        (unsigned long)uid, (unsigned long)new_uid);
+    FURI_LOG_I(
+        TAG,
+        "Clone: target current UID=%08lX, will write new UID=%08lX",
+        (unsigned long)uid,
+        (unsigned long)new_uid);
 
     /* Step 2: SELECT */
     result = hitag_s_select(uid, &current_config);
@@ -1355,8 +1372,7 @@ HitagSResult hitag_s_8268_clone_sequence(
             hitag_s_field_off();
             return result;
         }
-        FURI_LOG_D(TAG, "Clone: page %d = %08lX OK",
-            data_addrs[i], (unsigned long)data_pages[i]);
+        FURI_LOG_D(TAG, "Clone: page %d = %08lX OK", data_addrs[i], (unsigned long)data_pages[i]);
     }
 
     /* Step 5: Write config page (page 1) */
@@ -1377,8 +1393,12 @@ HitagSResult hitag_s_8268_clone_sequence(
         return result;
     }
 
-    FURI_LOG_I(TAG, "Clone: SUCCESS! UID=%08lX config=%08lX + %d data pages",
-        (unsigned long)new_uid, (unsigned long)config, (int)data_count);
+    FURI_LOG_I(
+        TAG,
+        "Clone: SUCCESS! UID=%08lX config=%08lX + %d data pages",
+        (unsigned long)new_uid,
+        (unsigned long)config,
+        (int)data_count);
     hitag_s_field_off();
     return HitagSResultOk;
 }
@@ -1400,7 +1420,6 @@ bool hitag_s_dump_save(
     const uint32_t* pages,
     const bool* page_valid,
     int max_page) {
-
     Storage* storage = (Storage*)storage_ptr;
     FlipperFormat* file = flipper_format_file_alloc(storage);
     bool result = false;
@@ -1418,11 +1437,7 @@ bool hitag_s_dump_save(
 
         /* UID as 4 hex bytes */
         uint8_t uid_bytes[4] = {
-            (uid >> 24) & 0xFF,
-            (uid >> 16) & 0xFF,
-            (uid >> 8) & 0xFF,
-            uid & 0xFF
-        };
+            (uid >> 24) & 0xFF, (uid >> 16) & 0xFF, (uid >> 8) & 0xFF, uid & 0xFF};
         if(!flipper_format_write_hex(file, "UID", uid_bytes, 4)) break;
 
         /* Max page as uint32 */
@@ -1433,9 +1448,17 @@ bool hitag_s_dump_save(
         if(page_valid[1]) {
             HitagSConfig cfg = hitag_s_parse_config(pages[1]);
             char comment[64];
-            snprintf(comment, sizeof(comment),
+            snprintf(
+                comment,
+                sizeof(comment),
                 "MEMT=%d auth=%d LKP=%d LCON=%d TTFC=%d TTFDR=%d TTFM=%d",
-                cfg.MEMT, cfg.auth, cfg.LKP, cfg.LCON, cfg.TTFC, cfg.TTFDR, cfg.TTFM);
+                cfg.MEMT,
+                cfg.auth,
+                cfg.LKP,
+                cfg.LCON,
+                cfg.TTFC,
+                cfg.TTFDR,
+                cfg.TTFM);
             flipper_format_write_comment_cstr(file, comment);
         }
 
@@ -1450,8 +1473,7 @@ bool hitag_s_dump_save(
                     (pages[p] >> 24) & 0xFF,
                     (pages[p] >> 16) & 0xFF,
                     (pages[p] >> 8) & 0xFF,
-                    pages[p] & 0xFF
-                };
+                    pages[p] & 0xFF};
                 if(!flipper_format_write_hex(file, key, page_bytes, 4)) {
                     write_ok = false;
                     break;
@@ -1482,7 +1504,6 @@ bool hitag_s_dump_load(
     uint32_t* pages,
     bool* page_valid,
     int* max_page) {
-
     Storage* storage = (Storage*)storage_ptr;
     FlipperFormat* file = flipper_format_file_alloc(storage);
     bool result = false;
@@ -1506,7 +1527,8 @@ bool hitag_s_dump_load(
             furi_string_free(filetype);
             break;
         }
-        if(furi_string_cmp_str(filetype, HITAGS_DUMP_FILETYPE) != 0 || version != HITAGS_DUMP_VERSION) {
+        if(furi_string_cmp_str(filetype, HITAGS_DUMP_FILETYPE) != 0 ||
+           version != HITAGS_DUMP_VERSION) {
             FURI_LOG_E(TAG, "Dump load: wrong filetype or version");
             furi_string_free(filetype);
             break;
@@ -1540,8 +1562,12 @@ bool hitag_s_dump_load(
         }
 
         result = true;
-        FURI_LOG_I(TAG, "Dump loaded from %s: UID=%08lX max_page=%d",
-            path, (unsigned long)*uid, *max_page);
+        FURI_LOG_I(
+            TAG,
+            "Dump loaded from %s: UID=%08lX max_page=%d",
+            path,
+            (unsigned long)*uid,
+            *max_page);
     } while(false);
 
     flipper_format_free(file);

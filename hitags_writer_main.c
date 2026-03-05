@@ -48,28 +48,25 @@ static int32_t hitags_writer_worker_thread(void* context) {
             /* Full write sequence with config read-modify-write */
             uint32_t config_page = 0;
             app->last_result =
-                hitag_s_8268_write_em4100_sequence(
-                    app->password,
-                    &hitag_data,
-                    &config_page);
+                hitag_s_8268_write_em4100_sequence(app->password, &hitag_data, &config_page);
 
             if(app->last_result == HitagSResultOk) {
-                FURI_LOG_I(TAG, "Worker: Write OK (attempt %d, config=%08lX)",
-                    attempts, (unsigned long)config_page);
-                view_dispatcher_send_custom_event(
-                    app->view_dispatcher, HitagSEventWriteOk);
+                FURI_LOG_I(
+                    TAG,
+                    "Worker: Write OK (attempt %d, config=%08lX)",
+                    attempts,
+                    (unsigned long)config_page);
+                view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventWriteOk);
                 break;
             }
 
             if(attempts >= max_attempts) {
                 FURI_LOG_W(TAG, "Worker: Write failed after %d attempts", attempts);
-                view_dispatcher_send_custom_event(
-                    app->view_dispatcher, HitagSEventWriteFailed);
+                view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventWriteFailed);
                 break;
             }
 
-            uint32_t wait = furi_thread_flags_wait(
-                HITAGS_WORKER_FLAG_STOP, FuriFlagWaitAny, 200);
+            uint32_t wait = furi_thread_flags_wait(HITAGS_WORKER_FLAG_STOP, FuriFlagWaitAny, 200);
             if(wait != (uint32_t)FuriFlagErrorTimeout) break;
         }
     } else if(app->worker_op == HitagSWorkerReadUid) {
@@ -87,22 +84,19 @@ static int32_t hitags_writer_worker_thread(void* context) {
             app->last_result = hitag_s_read_uid_sequence(&app->tag_uid);
 
             if(app->last_result == HitagSResultOk) {
-                FURI_LOG_I(TAG, "Worker: UID=%08lX (attempt %d)",
-                    (unsigned long)app->tag_uid, attempts);
-                view_dispatcher_send_custom_event(
-                    app->view_dispatcher, HitagSEventReadOk);
+                FURI_LOG_I(
+                    TAG, "Worker: UID=%08lX (attempt %d)", (unsigned long)app->tag_uid, attempts);
+                view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventReadOk);
                 break;
             }
 
             if(attempts >= max_attempts) {
                 FURI_LOG_W(TAG, "Worker: UID read failed after %d attempts", attempts);
-                view_dispatcher_send_custom_event(
-                    app->view_dispatcher, HitagSEventReadFailed);
+                view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventReadFailed);
                 break;
             }
 
-            uint32_t wait = furi_thread_flags_wait(
-                HITAGS_WORKER_FLAG_STOP, FuriFlagWaitAny, 100);
+            uint32_t wait = furi_thread_flags_wait(HITAGS_WORKER_FLAG_STOP, FuriFlagWaitAny, 100);
             if(wait != (uint32_t)FuriFlagErrorTimeout) break;
         }
     } else if(app->worker_op == HitagSWorkerReadPages) {
@@ -122,8 +116,7 @@ static int32_t hitags_writer_worker_thread(void* context) {
                 app->password, app->read_pages, page_addrs, 3, &app->tag_uid);
 
             if(app->last_result == HitagSResultOk) {
-                em4100_decode_hitag_data(
-                    app->read_pages[1], app->read_pages[2], app->read_id);
+                em4100_decode_hitag_data(app->read_pages[1], app->read_pages[2], app->read_id);
                 FURI_LOG_I(
                     TAG,
                     "Worker: Read EM4100 %02X:%02X:%02X:%02X:%02X (attempt %d)",
@@ -133,20 +126,17 @@ static int32_t hitags_writer_worker_thread(void* context) {
                     app->read_id[3],
                     app->read_id[4],
                     attempts);
-                view_dispatcher_send_custom_event(
-                    app->view_dispatcher, HitagSEventReadOk);
+                view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventReadOk);
                 break;
             }
 
             if(attempts >= max_attempts) {
                 FURI_LOG_W(TAG, "Worker: Read failed after %d attempts", attempts);
-                view_dispatcher_send_custom_event(
-                    app->view_dispatcher, HitagSEventReadFailed);
+                view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventReadFailed);
                 break;
             }
 
-            uint32_t wait = furi_thread_flags_wait(
-                HITAGS_WORKER_FLAG_STOP, FuriFlagWaitAny, 100);
+            uint32_t wait = furi_thread_flags_wait(HITAGS_WORKER_FLAG_STOP, FuriFlagWaitAny, 100);
             if(wait != (uint32_t)FuriFlagErrorTimeout) break;
         }
     } else if(app->worker_op == HitagSWorkerWriteUid) {
@@ -166,25 +156,22 @@ static int32_t hitags_writer_worker_thread(void* context) {
             uint32_t page_data[1] = {app->target_uid};
             uint8_t page_addrs[1] = {0};
 
-            app->last_result = hitag_s_8268_write_sequence(
-                app->password, page_data, page_addrs, 1);
+            app->last_result =
+                hitag_s_8268_write_sequence(app->password, page_data, page_addrs, 1);
 
             if(app->last_result == HitagSResultOk) {
                 FURI_LOG_I(TAG, "Worker: Write UID OK (attempt %d)", attempts);
-                view_dispatcher_send_custom_event(
-                    app->view_dispatcher, HitagSEventWriteUidOk);
+                view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventWriteUidOk);
                 break;
             }
 
             if(attempts >= max_attempts) {
                 FURI_LOG_W(TAG, "Worker: Write UID failed after %d attempts", attempts);
-                view_dispatcher_send_custom_event(
-                    app->view_dispatcher, HitagSEventWriteUidFailed);
+                view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventWriteUidFailed);
                 break;
             }
 
-            uint32_t wait = furi_thread_flags_wait(
-                HITAGS_WORKER_FLAG_STOP, FuriFlagWaitAny, 200);
+            uint32_t wait = furi_thread_flags_wait(HITAGS_WORKER_FLAG_STOP, FuriFlagWaitAny, 200);
             if(wait != (uint32_t)FuriFlagErrorTimeout) break;
         }
     } else if(app->worker_op == HitagSWorkerFullDump) {
@@ -219,28 +206,32 @@ static int32_t hitags_writer_worker_thread(void* context) {
                     if(app->dump_valid[p]) app->dump_read_count++;
                 }
 
-                FURI_LOG_I(TAG, "Worker: Dump OK — %d/%d pages (attempt %d)",
-                    app->dump_read_count, app->dump_max_page + 1, attempts);
-                view_dispatcher_send_custom_event(
-                    app->view_dispatcher, HitagSEventDumpOk);
+                FURI_LOG_I(
+                    TAG,
+                    "Worker: Dump OK — %d/%d pages (attempt %d)",
+                    app->dump_read_count,
+                    app->dump_max_page + 1,
+                    attempts);
+                view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventDumpOk);
                 break;
             }
 
             if(attempts >= max_attempts) {
                 FURI_LOG_W(TAG, "Worker: Dump failed after %d attempts", attempts);
-                view_dispatcher_send_custom_event(
-                    app->view_dispatcher, HitagSEventDumpFailed);
+                view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventDumpFailed);
                 break;
             }
 
-            uint32_t wait = furi_thread_flags_wait(
-                HITAGS_WORKER_FLAG_STOP, FuriFlagWaitAny, 200);
+            uint32_t wait = furi_thread_flags_wait(HITAGS_WORKER_FLAG_STOP, FuriFlagWaitAny, 200);
             if(wait != (uint32_t)FuriFlagErrorTimeout) break;
         }
     } else if(app->worker_op == HitagSWorkerCloneDump) {
         /* CloneDump: write loaded dump data to 8268 (UID + config + data pages) */
-        FURI_LOG_I(TAG, "Worker: Cloning dump UID=%08lX, %d pages...",
-            (unsigned long)app->clone_uid, (int)app->clone_count);
+        FURI_LOG_I(
+            TAG,
+            "Worker: Cloning dump UID=%08lX, %d pages...",
+            (unsigned long)app->clone_uid,
+            (int)app->clone_count);
 
         int attempts = 0;
         const int max_attempts = 15;
@@ -261,20 +252,17 @@ static int32_t hitags_writer_worker_thread(void* context) {
 
             if(app->last_result == HitagSResultOk) {
                 FURI_LOG_I(TAG, "Worker: Clone OK (attempt %d)", attempts);
-                view_dispatcher_send_custom_event(
-                    app->view_dispatcher, HitagSEventCloneOk);
+                view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventCloneOk);
                 break;
             }
 
             if(attempts >= max_attempts) {
                 FURI_LOG_W(TAG, "Worker: Clone failed after %d attempts", attempts);
-                view_dispatcher_send_custom_event(
-                    app->view_dispatcher, HitagSEventCloneFailed);
+                view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventCloneFailed);
                 break;
             }
 
-            uint32_t wait2 = furi_thread_flags_wait(
-                HITAGS_WORKER_FLAG_STOP, FuriFlagWaitAny, 200);
+            uint32_t wait2 = furi_thread_flags_wait(HITAGS_WORKER_FLAG_STOP, FuriFlagWaitAny, 200);
             if(wait2 != (uint32_t)FuriFlagErrorTimeout) break;
         }
     }
@@ -386,13 +374,11 @@ static HitagSApp* hitags_writer_alloc(void) {
 
     /* Popup */
     app->popup = popup_alloc();
-    view_dispatcher_add_view(
-        app->view_dispatcher, HitagSViewPopup, popup_get_view(app->popup));
+    view_dispatcher_add_view(app->view_dispatcher, HitagSViewPopup, popup_get_view(app->popup));
 
     /* Widget */
     app->widget = widget_alloc();
-    view_dispatcher_add_view(
-        app->view_dispatcher, HitagSViewWidget, widget_get_view(app->widget));
+    view_dispatcher_add_view(app->view_dispatcher, HitagSViewWidget, widget_get_view(app->widget));
 
     /* Byte Input */
     app->byte_input = byte_input_alloc();

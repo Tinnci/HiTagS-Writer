@@ -11,7 +11,7 @@
 #include "../hitags_writer_i.h"
 
 typedef enum {
-    WriteUidStateInput,   /* ByteInput: enter UID */
+    WriteUidStateInput, /* ByteInput: enter UID */
     WriteUidStateConfirm, /* Confirm dialog */
     WriteUidStateWriting, /* Writing in progress */
 } WriteUidState;
@@ -21,9 +21,7 @@ static void hitags_writer_scene_write_uid_byte_input_callback(void* context) {
     view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventNext);
 }
 
-static void hitags_writer_scene_write_uid_confirm_callback(
-    DialogExResult result,
-    void* context) {
+static void hitags_writer_scene_write_uid_confirm_callback(DialogExResult result, void* context) {
     HitagSApp* app = context;
     view_dispatcher_send_custom_event(app->view_dispatcher, result);
 }
@@ -57,16 +55,14 @@ void hitags_writer_scene_write_uid_on_enter(void* context) {
 bool hitags_writer_scene_write_uid_on_event(void* context, SceneManagerEvent event) {
     HitagSApp* app = context;
     bool consumed = false;
-    WriteUidState state = scene_manager_get_scene_state(
-        app->scene_manager, HitagSSceneWriteUid);
+    WriteUidState state = scene_manager_get_scene_state(app->scene_manager, HitagSSceneWriteUid);
 
     if(event.type == SceneManagerEventTypeCustom) {
         if(state == WriteUidStateInput && event.event == HitagSEventNext) {
             /* Input done — show confirm dialog */
             app->target_uid = ((uint32_t)app->uid_input[0] << 24) |
                               ((uint32_t)app->uid_input[1] << 16) |
-                              ((uint32_t)app->uid_input[2] << 8) |
-                              (uint32_t)app->uid_input[3];
+                              ((uint32_t)app->uid_input[2] << 8) | (uint32_t)app->uid_input[3];
 
             DialogEx* dialog = app->dialog_ex;
             dialog_ex_reset(dialog);

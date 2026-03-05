@@ -19,9 +19,7 @@ typedef enum {
     LoadDumpStateWriting,
 } LoadDumpState;
 
-static void hitags_writer_scene_load_dump_confirm_cb(
-    DialogExResult result,
-    void* context) {
+static void hitags_writer_scene_load_dump_confirm_cb(DialogExResult result, void* context) {
     HitagSApp* app = context;
     view_dispatcher_send_custom_event(app->view_dispatcher, result);
 }
@@ -48,7 +46,9 @@ static void hitags_writer_prepare_clone_data(HitagSApp* app) {
     /* Config from page 1 */
     app->clone_config = app->dump_valid[1] ? app->dump_pages[1] : 0;
 
-    FURI_LOG_I("LoadDump", "Clone prepared: UID=%08lX config=%08lX %d data pages",
+    FURI_LOG_I(
+        "LoadDump",
+        "Clone prepared: UID=%08lX config=%08lX %d data pages",
         (unsigned long)app->clone_uid,
         (unsigned long)app->clone_config,
         (int)app->clone_count);
@@ -59,16 +59,14 @@ void hitags_writer_scene_load_dump_on_enter(void* context) {
 
     /* Show file browser for .hts files */
     DialogsFileBrowserOptions browser_options;
-    dialog_file_browser_set_basic_options(
-        &browser_options, HITAGS_DUMP_EXTENSION, NULL);
+    dialog_file_browser_set_basic_options(&browser_options, HITAGS_DUMP_EXTENSION, NULL);
     browser_options.base_path = HITAGS_DUMP_FOLDER;
     browser_options.hide_dot_files = true;
 
-    scene_manager_set_scene_state(
-        app->scene_manager, HitagSSceneLoadDump, LoadDumpStateBrowser);
+    scene_manager_set_scene_state(app->scene_manager, HitagSSceneLoadDump, LoadDumpStateBrowser);
 
-    bool result = dialog_file_browser_show(
-        app->dialogs, app->file_path, app->file_path, &browser_options);
+    bool result =
+        dialog_file_browser_show(app->dialogs, app->file_path, app->file_path, &browser_options);
 
     if(!result) {
         /* User cancelled */
@@ -109,8 +107,7 @@ void hitags_writer_scene_load_dump_on_enter(void* context) {
     DialogEx* dialog = app->dialog_ex;
     dialog_ex_reset(dialog);
 
-    HitagSConfig cfg = hitag_s_parse_config(
-        app->dump_valid[1] ? app->dump_pages[1] : 0);
+    HitagSConfig cfg = hitag_s_parse_config(app->dump_valid[1] ? app->dump_pages[1] : 0);
 
     snprintf(
         app->text_store,
@@ -129,16 +126,14 @@ void hitags_writer_scene_load_dump_on_enter(void* context) {
     dialog_ex_set_result_callback(dialog, hitags_writer_scene_load_dump_confirm_cb);
     dialog_ex_set_context(dialog, app);
 
-    scene_manager_set_scene_state(
-        app->scene_manager, HitagSSceneLoadDump, LoadDumpStateConfirm);
+    scene_manager_set_scene_state(app->scene_manager, HitagSSceneLoadDump, LoadDumpStateConfirm);
     view_dispatcher_switch_to_view(app->view_dispatcher, HitagSViewDialogEx);
 }
 
 bool hitags_writer_scene_load_dump_on_event(void* context, SceneManagerEvent event) {
     HitagSApp* app = context;
     bool consumed = false;
-    LoadDumpState state = scene_manager_get_scene_state(
-        app->scene_manager, HitagSSceneLoadDump);
+    LoadDumpState state = scene_manager_get_scene_state(app->scene_manager, HitagSSceneLoadDump);
 
     if(event.type == SceneManagerEventTypeCustom) {
         if(state == LoadDumpStateConfirm && event.event == DialogExResultRight) {
