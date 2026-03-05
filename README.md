@@ -14,7 +14,30 @@
 | **Full Dump** | Read all pages, display summary, save as `.hts` file or log to serial |
 | **Load & Clone** | Restore full tag data from `.hts` dump file (UID + config + data pages) |
 | **Wipe Tag** | Clear all data pages, reset config and password to factory defaults |
+| **Debug Read** | Full read with RF trace capture — saves raw edge timing data for offline analysis |
 | **About** | App information and supported chip models |
+
+### Debug Trace System
+
+The **Debug Read** feature captures every RF edge (level + duration in µs) during a full
+read sequence and saves it as a `.htsd` text file. This is invaluable for diagnosing:
+
+- Tags that fail to respond or decode correctly
+- Authentication failures (which passwords were tried, ACK/NACK results)
+- Timing anomalies or glitches in the RF communication
+- Manchester decoding issues
+
+The trace file can be analyzed offline with the included Python tool:
+
+```bash
+python analyze_trace.py Trace_AABBCCDD.htsd             # Basic report
+python analyze_trace.py Trace_AABBCCDD.htsd --edges      # Show raw edge data
+python analyze_trace.py Trace_AABBCCDD.htsd --redecode   # Re-decode Manchester from edges
+python analyze_trace.py Trace_AABBCCDD.htsd -o report.txt # Save report to file
+```
+
+Even when a read fails, the trace is still captured and can be saved — the partial
+data often reveals exactly where communication broke down.
 
 ### 8268 Advanced Features
 
@@ -45,6 +68,41 @@ Page 1: XX XX XX XX
 ```
 
 Files are saved to `/ext/lfrfid/HiTagS_XXXXXXXX.hts` (named by UID).
+
+## .htsd Debug Trace Format
+
+Plain text file containing timestamped RF transaction logs:
+
+```
+=== HiTag S Debug Trace ===
+
+--- UID_REQUEST ---
+  TX: UID_REQ_STD (5 bits, val=0x06)
+  attempt 1/STD:
+  RX: 47 edges mode=AC2K
+  EDGES: H:523 L:245 H:130 L:267 ...
+  DECODE: 32 bits = AA BB CC DD
+  RESULT: OK, UID=AABBCCDD (mode=STD)
+
+--- SELECT ---
+  TX: SELECT UID=AABBCCDD CRC=XX (45 bits)
+  RX: 120 edges mode=MC4K
+  DECODE: 34 bits = 06 24 00 40
+  RESULT: OK, Config=06240040
+
+--- AUTH (pwd=0xBBDD3399) ---
+  TX: WRITE_PAGE addr=64 CRC=XX (20 bits) [step 1]
+  step1: ACK OK
+  TX: Password=BBDD3399 CRC=XX (40 bits) [step 2]
+  RESULT: AUTH OK
+
+PAGE TABLE:
+  [ 0] AABBCCDD
+  [ 1] 06240040
+  ...
+```
+
+Files are saved to `/ext/lfrfid/Trace_XXXXXXXX.htsd` (named by UID).
 
 ## Technical Details
 
@@ -133,7 +191,7 @@ HiTagS Writer/
 ├── scenes/
 │   ├── hitags_writer_scene_config.h    # Scene declarations (X-Macro)
 │   ├── hitags_writer_scene.c/h        # Scene handler arrays
-│   ├── *_scene_start.c                # Main menu (9 entries)
+│   ├── *_scene_start.c                # Main menu (10 entries)
 │   ├── *_scene_input_id.c            # EM4100 ID byte input
 │   ├── *_scene_select_file.c         # .rfid file browser
 │   ├── *_scene_write_confirm.c       # Write confirmation dialog
@@ -146,10 +204,12 @@ HiTagS Writer/
 │   ├── *_scene_full_dump.c           # Full dump + save .hts
 │   ├── *_scene_load_dump.c           # Load .hts + clone
 │   ├── *_scene_wipe_tag.c           # Wipe tag
+│   ├── *_scene_debug_read.c         # Debug read with trace capture
 │   └── *_scene_about.c              # About
 ├── images/                    # Icon assets
 ├── hitags_writer.png          # App icon (10x10, 1-bit)
 ├── sim_manchester.py          # Manchester decoder Python simulation tests
+├── analyze_trace.py           # Debug trace offline analyzer (.htsd → report)
 └── pixi.toml                 # Pixi environment config
 ```
 
