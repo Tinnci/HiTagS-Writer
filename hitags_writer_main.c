@@ -149,6 +149,94 @@ static int32_t hitags_writer_worker_thread(void* context) {
                 HITAGS_WORKER_FLAG_STOP, FuriFlagWaitAny, 100);
             if(wait != (uint32_t)FuriFlagErrorTimeout) break;
         }
+    } else if(app->worker_op == HitagSWorkerWriteUid) {
+        /* WriteUid: UID_REQ → SELECT → Auth → Write page 0 (UID) */
+        FURI_LOG_I(TAG, "Worker: Writing UID %08lX...", (unsigned long)app->target_uid);
+
+        int attempts = 0;
+        const int max_attempts = 15;
+
+        while(true) {
+            uint32_t flags = furi_thread_flags_get();
+            if(flags & HITAGS_WORKER_FLAG_STOP) break;
+
+            attempts++;
+
+            /* Use generic write sequence: write page 0 with the new UID */
+            uint32_t page_data[1] = {app->target_uid};
+            uint8_t page_addrs[1] = {0};
+
+            app->last_result = hitag_s_8268_write_sequence(
+                app->password, page_data, page_addrs, 1);
+
+            if(app->last_result == HitagSResultOk) {
+                FURI_LOG_I(TAG, "Worker: Write UID OK (attempt %d)", attempts);
+                view_dispatcher_send_custom_event(
+                    app->view_dispatcher, HitagSEventWriteUidOk);
+                break;
+            }
+
+            if(attempts >= max_attempts) {
+                FURI_LOG_W(TAG, "Worker: Write UID failed after %d attempts", attempts);
+                view_dispatcher_send_custom_event(
+                    app->view_dispatcher, HitagSEventWriteUidFailed);
+                break;
+            }
+
+            uint32_t wait = furi_thread_flags_wait(
+                HITAGS_WORKER_FLAG_STOP, FuriFlagWaitAny, 200);
+            if(wait != (uint32_t)FuriFlagErrorTimeout) break;
+        }
+    } else if(app->worker_op == HitagSWorkerFullDump) {
+        /* FullDump: read all pages from tag */
+        FURI_LOG_I(TAG, "Worker: Starting full tag dump...");
+
+        memset(app->dump_pages, 0, sizeof(app->dump_pages));
+        memset(app->dump_valid, 0, sizeof(app->dump_valid));
+        app->dump_max_page = 0;
+        app->dump_read_count = 0;
+
+        int attempts = 0;
+        const int max_attempts = 10;
+
+        while(true) {
+            uint32_t flags = furi_thread_flags_get();
+            if(flags & HITAGS_WORKER_FLAG_STOP) break;
+
+            attempts++;
+
+            app->last_result = hitag_s_8268_read_all(
+                app->password,
+                app->dump_pages,
+                app->dump_valid,
+                &app->dump_max_page,
+                &app->tag_uid);
+
+            if(app->last_result == HitagSResultOk) {
+                /* Count read pages */
+                app->dump_read_count = 0;
+                for(int p = 0; p <= app->dump_max_page; p++) {
+                    if(app->dump_valid[p]) app->dump_read_count++;
+                }
+
+                FURI_LOG_I(TAG, "Worker: Dump OK — %d/%d pages (attempt %d)",
+                    app->dump_read_count, app->dump_max_page + 1, attempts);
+                view_dispatcher_send_custom_event(
+                    app->view_dispatcher, HitagSEventDumpOk);
+                break;
+            }
+
+            if(attempts >= max_attempts) {
+                FURI_LOG_W(TAG, "Worker: Dump failed after %d attempts", attempts);
+                view_dispatcher_send_custom_event(
+                    app->view_dispatcher, HitagSEventDumpFailed);
+                break;
+            }
+
+            uint32_t wait = furi_thread_flags_wait(
+                HITAGS_WORKER_FLAG_STOP, FuriFlagWaitAny, 200);
+            if(wait != (uint32_t)FuriFlagErrorTimeout) break;
+        }
     }
 
     return 0;
@@ -208,9 +296,15 @@ static HitagSApp* hitags_writer_alloc(void) {
     app->password = HITAG_S_8268_PASSWORD;
     memset(app->em4100_id, 0, sizeof(app->em4100_id));
     app->tag_uid = 0;
+    app->target_uid = 0;
     app->last_result = HitagSResultError;
     app->worker_running = false;
     app->worker_op = HitagSWorkerIdle;
+    app->dump_max_page = 0;
+    app->dump_read_count = 0;
+    memset(app->uid_input, 0, sizeof(app->uid_input));
+    memset(app->dump_pages, 0, sizeof(app->dump_pages));
+    memset(app->dump_valid, 0, sizeof(app->dump_valid));
 
     /* Open services */
     app->storage = furi_record_open(RECORD_STORAGE);

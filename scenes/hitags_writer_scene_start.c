@@ -10,6 +10,8 @@ typedef enum {
     SubmenuIndexLoadFile,
     SubmenuIndexReadTag,
     SubmenuIndexReadUID,
+    SubmenuIndexWriteUID,
+    SubmenuIndexFullDump,
     SubmenuIndexAbout,
 } SubmenuIndex;
 
@@ -52,6 +54,20 @@ void hitags_writer_scene_start_on_enter(void* context) {
 
     submenu_add_item(
         submenu,
+        "Write Tag UID",
+        SubmenuIndexWriteUID,
+        hitags_writer_scene_start_submenu_callback,
+        app);
+
+    submenu_add_item(
+        submenu,
+        "Full Tag Dump",
+        SubmenuIndexFullDump,
+        hitags_writer_scene_start_submenu_callback,
+        app);
+
+    submenu_add_item(
+        submenu,
         "About",
         SubmenuIndexAbout,
         hitags_writer_scene_start_submenu_callback,
@@ -86,6 +102,14 @@ bool hitags_writer_scene_start_on_event(void* context, SceneManagerEvent event) 
             break;
         case SubmenuIndexReadUID:
             scene_manager_next_scene(app->scene_manager, HitagSSceneReadUid);
+            consumed = true;
+            break;
+        case SubmenuIndexWriteUID:
+            scene_manager_next_scene(app->scene_manager, HitagSSceneWriteUid);
+            consumed = true;
+            break;
+        case SubmenuIndexFullDump:
+            scene_manager_next_scene(app->scene_manager, HitagSSceneFullDump);
             consumed = true;
             break;
         case SubmenuIndexAbout:

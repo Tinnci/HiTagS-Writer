@@ -893,16 +893,20 @@ HitagSResult hitag_s_8268_write_sequence(
     }
 
     /* Step 3: Authenticate */
-    result = hitag_s_8268_authenticate(password);
+    if(password != 0) {
+        result = hitag_s_8268_authenticate(password);
+    } else {
+        result = hitag_s_8268_authenticate_multi(NULL, 0);
+    }
     if(result != HitagSResultOk) {
         FURI_LOG_E(TAG, "Write sequence: Authentication failed");
         hitag_s_field_off();
         return result;
     }
 
-    /* Step 4: Write pages */
+    /* Step 4: Write pages with verification */
     for(size_t i = 0; i < page_count; i++) {
-        result = hitag_s_write_page(page_addrs[i], pages[i]);
+        result = hitag_s_write_page_verify(page_addrs[i], pages[i]);
         if(result != HitagSResultOk) {
             FURI_LOG_E(TAG, "Write sequence: Write page %d failed", page_addrs[i]);
             hitag_s_field_off();
@@ -942,8 +946,12 @@ HitagSResult hitag_s_8268_write_em4100_sequence(
 
     FURI_LOG_I(TAG, "EM4100 write: current config = %08lX", (unsigned long)config);
 
-    /* Step 3: Authenticate with 82xx password */
-    result = hitag_s_8268_authenticate(password);
+    /* Step 3: Authenticate with 82xx password (try multiple if needed) */
+    if(password != 0) {
+        result = hitag_s_8268_authenticate(password);
+    } else {
+        result = hitag_s_8268_authenticate_multi(NULL, 0);
+    }
     if(result != HitagSResultOk) {
         FURI_LOG_E(TAG, "EM4100 write: Authentication failed");
         hitag_s_field_off();
@@ -960,29 +968,37 @@ HitagSResult hitag_s_8268_write_em4100_sequence(
         FURI_LOG_I(TAG, "EM4100 write: read config = %08lX", (unsigned long)current_config);
     }
 
+    /* Check lock bits before writing */
+    HitagSConfig cfg = hitag_s_parse_config(current_config);
+    if(hitag_s_page_locked(&cfg, 4) || hitag_s_page_locked(&cfg, 5)) {
+        FURI_LOG_E(TAG, "EM4100 write: data pages 4/5 locked!");
+        hitag_s_field_off();
+        return HitagSResultError;
+    }
+
     /* Step 5: Modify config for EM4100 TTF (read-modify-write) */
     uint32_t new_config = em4100_config_set_ttf(current_config);
     if(config_out) *config_out = new_config;
 
-    /* Step 6: Write modified config to page 1 */
-    result = hitag_s_write_page(1, new_config);
-    if(result != HitagSResultOk) {
-        FURI_LOG_E(TAG, "EM4100 write: Write config page failed");
-        hitag_s_field_off();
-        return result;
-    }
-
-    /* Step 7: Write EM4100 data to pages 4 and 5 */
-    result = hitag_s_write_page(4, em_data->data_hi);
+    /* Step 6: Write EM4100 data to pages 4 and 5 FIRST (before config change) */
+    result = hitag_s_write_page_verify(4, em_data->data_hi);
     if(result != HitagSResultOk) {
         FURI_LOG_E(TAG, "EM4100 write: Write page 4 failed");
         hitag_s_field_off();
         return result;
     }
 
-    result = hitag_s_write_page(5, em_data->data_lo);
+    result = hitag_s_write_page_verify(5, em_data->data_lo);
     if(result != HitagSResultOk) {
         FURI_LOG_E(TAG, "EM4100 write: Write page 5 failed");
+        hitag_s_field_off();
+        return result;
+    }
+
+    /* Step 7: Write modified config to page 1 (last, since it enables TTF) */
+    result = hitag_s_write_page(1, new_config);
+    if(result != HitagSResultOk) {
+        FURI_LOG_E(TAG, "EM4100 write: Write config page failed");
         hitag_s_field_off();
         return result;
     }
@@ -1026,7 +1042,11 @@ HitagSResult hitag_s_8268_read_sequence(
     }
 
     /* Step 3: Authenticate */
-    result = hitag_s_8268_authenticate(password);
+    if(password != 0) {
+        result = hitag_s_8268_authenticate(password);
+    } else {
+        result = hitag_s_8268_authenticate_multi(NULL, 0);
+    }
     if(result != HitagSResultOk) {
         FURI_LOG_E(TAG, "Read sequence: Authentication failed");
         hitag_s_field_off();
@@ -1044,6 +1064,321 @@ HitagSResult hitag_s_8268_read_sequence(
     }
 
     FURI_LOG_I(TAG, "Read sequence: All %d pages read successfully!", (int)page_count);
+    hitag_s_field_off();
+    return HitagSResultOk;
+}
+
+/* ============================================================
+ * Write with Readback Verification (PM3-inspired)
+ * ============================================================ */
+
+HitagSResult hitag_s_write_page_verify(uint8_t page, uint32_t data) {
+    /* Write the page */
+    HitagSResult result = hitag_s_write_page(page, data);
+    if(result != HitagSResultOk) {
+        return result;
+    }
+
+    /* Read back for verification */
+    uint32_t readback = 0;
+    result = hitag_s_read_page(page, &readback);
+    if(result != HitagSResultOk) {
+        FURI_LOG_W(TAG, "VERIFY page %d: readback failed", page);
+        return result;
+    }
+
+    /* For config page (page 1), PWDH0 byte is masked (returns 0xFF in plain mode) */
+    uint32_t mask = 0xFFFFFFFF;
+    if(page == 1) {
+        mask = 0xFFFFFF00; /* Ignore PWDH0 byte */
+    }
+
+    if((readback & mask) != (data & mask)) {
+        FURI_LOG_E(TAG, "VERIFY page %d: MISMATCH wrote=%08lX read=%08lX",
+            page, (unsigned long)data, (unsigned long)readback);
+        return HitagSResultError;
+    }
+
+    FURI_LOG_I(TAG, "VERIFY page %d: OK (%08lX)", page, (unsigned long)readback);
+    return HitagSResultOk;
+}
+
+/* ============================================================
+ * Multi-Password Authentication (PM3-inspired)
+ * ============================================================ */
+
+HitagSResult hitag_s_8268_authenticate_multi(const uint32_t* passwords, size_t count) {
+    /* Default passwords to try if none provided */
+    static const uint32_t default_passwords[] = {
+        HITAG_S_8268_PASSWORD,      /* 0xBBDD3399 — standard 8268 password */
+        HITAG_S_8268_PASSWORD_ALT,  /* 0x4D494B52 — "MIKR" alternate */
+    };
+
+    const uint32_t* pwd_list = passwords;
+    size_t pwd_count = count;
+
+    if(pwd_list == NULL || pwd_count == 0) {
+        pwd_list = default_passwords;
+        pwd_count = sizeof(default_passwords) / sizeof(default_passwords[0]);
+    }
+
+    for(size_t i = 0; i < pwd_count; i++) {
+        FURI_LOG_I(TAG, "Auth attempt %d/%d with password %08lX",
+            (int)(i + 1), (int)pwd_count, (unsigned long)pwd_list[i]);
+
+        HitagSResult result = hitag_s_8268_authenticate(pwd_list[i]);
+        if(result == HitagSResultOk) {
+            FURI_LOG_I(TAG, "Auth OK with password %08lX", (unsigned long)pwd_list[i]);
+            return HitagSResultOk;
+        }
+
+        /* If NACK, try next password. If timeout, tag may be gone. */
+        if(result == HitagSResultTimeout) {
+            FURI_LOG_W(TAG, "Auth timeout — tag may be out of range");
+            return HitagSResultTimeout;
+        }
+
+        FURI_LOG_D(TAG, "Password %08lX rejected, trying next...", (unsigned long)pwd_list[i]);
+    }
+
+    FURI_LOG_E(TAG, "All %d passwords rejected", (int)pwd_count);
+    return HitagSResultNack;
+}
+
+/* ============================================================
+ * Page Lock Check
+ * ============================================================ */
+
+bool hitag_s_page_writable(uint32_t config_val, uint8_t page) {
+    HitagSConfig cfg = hitag_s_parse_config(config_val);
+
+    /* 82xx: page 0 (UID) is writable via magic command */
+    if(page == 0) return true;
+
+    /* Page 1 (config) — writable unless LCON is set */
+    if(page == 1) return !cfg.LCON;
+
+    /* Pages 2-3 (password/key) — writable unless LKP is set */
+    if(page == 2 || page == 3) return !cfg.LKP;
+
+    /* Pages 4-63 — check individual lock bits */
+    return !hitag_s_page_locked(&cfg, page);
+}
+
+/* ============================================================
+ * Write UID (page 0) — 8268 magic chip feature
+ * ============================================================ */
+
+HitagSResult hitag_s_write_uid(uint32_t new_uid) {
+    FURI_LOG_I(TAG, "Writing UID page 0: %08lX", (unsigned long)new_uid);
+
+    /* 8268 magic chips allow writing page 0 (UID)
+     * This is the key difference from normal Hitag S tags */
+    HitagSResult result = hitag_s_write_page(0, new_uid);
+    if(result != HitagSResultOk) {
+        FURI_LOG_E(TAG, "Write UID failed");
+        return result;
+    }
+
+    /* Verify by reading back — but note we can't read page 0 directly
+     * after write in the same session. The UID will change on next
+     * power cycle, so we just trust the write ACK. */
+    FURI_LOG_I(TAG, "UID write command sent successfully");
+    return HitagSResultOk;
+}
+
+/* ============================================================
+ * Full Tag Dump (read all pages)
+ * ============================================================ */
+
+HitagSResult hitag_s_8268_read_all(
+    uint32_t password,
+    uint32_t* pages,
+    bool* page_valid,
+    int* max_page_out,
+    uint32_t* uid_out) {
+
+    uint32_t uid = 0;
+    uint32_t config = 0;
+
+    hitag_s_field_on();
+
+    /* Step 1: UID request */
+    HitagSResult result = hitag_s_uid_request(&uid);
+    if(result != HitagSResultOk) {
+        FURI_LOG_E(TAG, "Read all: UID request failed");
+        hitag_s_field_off();
+        return result;
+    }
+
+    if(uid_out) *uid_out = uid;
+    pages[0] = uid;
+    page_valid[0] = true;
+
+    /* Step 2: SELECT */
+    result = hitag_s_select(uid, &config);
+    if(result != HitagSResultOk) {
+        FURI_LOG_E(TAG, "Read all: SELECT failed");
+        hitag_s_field_off();
+        return result;
+    }
+
+    /* Parse config to determine max page */
+    HitagSConfig cfg = hitag_s_parse_config(config);
+    int max_pg = hitag_s_max_page(&cfg);
+    if(max_page_out) *max_page_out = max_pg;
+
+    FURI_LOG_I(TAG, "Read all: MEMT=%d, max_page=%d, auth=%d", cfg.MEMT, max_pg, cfg.auth);
+
+    /* Step 3: Authenticate with 82xx password */
+    if(password != 0) {
+        result = hitag_s_8268_authenticate(password);
+    } else {
+        result = hitag_s_8268_authenticate_multi(NULL, 0);
+    }
+    if(result != HitagSResultOk) {
+        FURI_LOG_E(TAG, "Read all: Authentication failed");
+        hitag_s_field_off();
+        return result;
+    }
+
+    /* Step 4: Read config page (page 1) properly after auth */
+    result = hitag_s_read_page(1, &pages[1]);
+    if(result == HitagSResultOk) {
+        page_valid[1] = true;
+        /* Re-parse config with full data (after auth, PWDH0 may be readable) */
+        config = pages[1];
+        cfg = hitag_s_parse_config(config);
+    } else {
+        pages[1] = config; /* Use value from SELECT */
+        page_valid[1] = true;
+    }
+
+    /* Step 5: Read pages 2 and 3 (password/key) — may be protected */
+    for(uint8_t p = 2; p <= 3; p++) {
+        if(cfg.auth && cfg.LKP) {
+            /* LKP=1 + auth mode: pages 2/3 not accessible */
+            FURI_LOG_D(TAG, "Read all: page %d protected (LKP+auth), skipping", p);
+            page_valid[p] = false;
+            continue;
+        }
+        result = hitag_s_read_page(p, &pages[p]);
+        page_valid[p] = (result == HitagSResultOk);
+        if(!page_valid[p]) {
+            FURI_LOG_D(TAG, "Read all: page %d read failed", p);
+        }
+    }
+
+    /* Step 6: Read data pages 4..max_page */
+    for(int p = 4; p <= max_pg; p++) {
+        result = hitag_s_read_page((uint8_t)p, &pages[p]);
+        page_valid[p] = (result == HitagSResultOk);
+        if(!page_valid[p]) {
+            FURI_LOG_D(TAG, "Read all: page %d read failed", p);
+        }
+    }
+
+    /* Mark remaining pages as invalid */
+    for(int p = max_pg + 1; p < HITAG_S_MAX_PAGES; p++) {
+        page_valid[p] = false;
+    }
+
+    /* Count successfully read pages */
+    int read_count = 0;
+    for(int p = 0; p <= max_pg; p++) {
+        if(page_valid[p]) read_count++;
+    }
+
+    FURI_LOG_I(TAG, "Read all: %d/%d pages read", read_count, max_pg + 1);
+    hitag_s_field_off();
+    return HitagSResultOk;
+}
+
+/* ============================================================
+ * Full Clone Sequence (UID + config + data)
+ * ============================================================ */
+
+HitagSResult hitag_s_8268_clone_sequence(
+    uint32_t password,
+    uint32_t new_uid,
+    uint32_t config,
+    const uint32_t* data_pages,
+    const uint8_t* data_addrs,
+    size_t data_count) {
+
+    uint32_t uid = 0;
+    uint32_t current_config = 0;
+
+    hitag_s_field_on();
+
+    /* Step 1: UID request (get current UID of target tag) */
+    HitagSResult result = hitag_s_uid_request(&uid);
+    if(result != HitagSResultOk) {
+        FURI_LOG_E(TAG, "Clone: UID request failed");
+        hitag_s_field_off();
+        return result;
+    }
+
+    FURI_LOG_I(TAG, "Clone: target current UID=%08lX, will write new UID=%08lX",
+        (unsigned long)uid, (unsigned long)new_uid);
+
+    /* Step 2: SELECT */
+    result = hitag_s_select(uid, &current_config);
+    if(result != HitagSResultOk) {
+        FURI_LOG_E(TAG, "Clone: SELECT failed");
+        hitag_s_field_off();
+        return result;
+    }
+
+    /* Step 3: Authenticate */
+    if(password != 0) {
+        result = hitag_s_8268_authenticate(password);
+    } else {
+        result = hitag_s_8268_authenticate_multi(NULL, 0);
+    }
+    if(result != HitagSResultOk) {
+        FURI_LOG_E(TAG, "Clone: Authentication failed");
+        hitag_s_field_off();
+        return result;
+    }
+
+    /* Step 4: Write data pages FIRST (before changing config which may lock them) */
+    for(size_t i = 0; i < data_count; i++) {
+        if(!hitag_s_page_writable(current_config, data_addrs[i])) {
+            FURI_LOG_W(TAG, "Clone: page %d locked, skipping", data_addrs[i]);
+            continue;
+        }
+
+        result = hitag_s_write_page(data_addrs[i], data_pages[i]);
+        if(result != HitagSResultOk) {
+            FURI_LOG_E(TAG, "Clone: Write page %d failed", data_addrs[i]);
+            hitag_s_field_off();
+            return result;
+        }
+        FURI_LOG_D(TAG, "Clone: page %d = %08lX OK",
+            data_addrs[i], (unsigned long)data_pages[i]);
+    }
+
+    /* Step 5: Write config page (page 1) */
+    result = hitag_s_write_page(1, config);
+    if(result != HitagSResultOk) {
+        FURI_LOG_E(TAG, "Clone: Write config failed");
+        hitag_s_field_off();
+        return result;
+    }
+    FURI_LOG_I(TAG, "Clone: config=%08lX written", (unsigned long)config);
+
+    /* Step 6: Write UID (page 0) — 82xx magic! Do this LAST since
+     * the tag will have a different UID after next power cycle */
+    result = hitag_s_write_uid(new_uid);
+    if(result != HitagSResultOk) {
+        FURI_LOG_E(TAG, "Clone: Write UID failed");
+        hitag_s_field_off();
+        return result;
+    }
+
+    FURI_LOG_I(TAG, "Clone: SUCCESS! UID=%08lX config=%08lX + %d data pages",
+        (unsigned long)new_uid, (unsigned long)config, (int)data_count);
     hitag_s_field_off();
     return HitagSResultOk;
 }
