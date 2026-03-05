@@ -298,6 +298,42 @@ static int32_t hitags_writer_worker_thread(void* context) {
             uint32_t wait3 = furi_thread_flags_wait(HITAGS_WORKER_FLAG_STOP, FuriFlagWaitAny, 200);
             if(wait3 != (uint32_t)FuriFlagErrorTimeout) break;
         }
+    } else if(app->worker_op == HitagSWorkerDebugRead) {
+        /* DebugRead: full read with RF trace capture */
+        FURI_LOG_I(TAG, "Worker: Starting debug read with trace...");
+
+        memset(app->dump_pages, 0, sizeof(app->dump_pages));
+        memset(app->dump_valid, 0, sizeof(app->dump_valid));
+        app->dump_max_page = 0;
+        app->dump_read_count = 0;
+
+        /* Free any previous trace */
+        if(app->debug_trace) {
+            furi_string_free((FuriString*)app->debug_trace);
+            app->debug_trace = NULL;
+        }
+
+        /* Start trace and perform full debug read */
+        hitag_s_debug_trace_start();
+
+        uint32_t config = 0;
+        app->last_result = hitag_s_debug_read_sequence(
+            &app->tag_uid, &config, app->dump_pages, app->dump_valid, &app->dump_max_page);
+
+        /* Stop trace and capture buffer */
+        app->debug_trace = hitag_s_debug_trace_stop();
+
+        if(app->last_result == HitagSResultOk) {
+            app->dump_read_count = 0;
+            for(int p = 0; p <= app->dump_max_page; p++) {
+                if(app->dump_valid[p]) app->dump_read_count++;
+            }
+            FURI_LOG_I(TAG, "Worker: Debug read OK — %d pages", app->dump_read_count);
+            view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventDebugOk);
+        } else {
+            FURI_LOG_W(TAG, "Worker: Debug read failed (result=%d)", (int)app->last_result);
+            view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventDebugFailed);
+        }
     }
 
     return 0;
@@ -435,6 +471,12 @@ static void hitags_writer_free(HitagSApp* app) {
 
     /* String */
     furi_string_free(app->file_path);
+
+    /* Debug trace */
+    if(app->debug_trace) {
+        furi_string_free((FuriString*)app->debug_trace);
+        app->debug_trace = NULL;
+    }
 
     /* Protocol dict */
     protocol_dict_free(app->dict);

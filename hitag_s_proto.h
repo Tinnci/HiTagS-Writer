@@ -422,19 +422,36 @@ bool hitag_s_dump_save(
 
 /**
  * @brief Load tag dump from file
- *
- * @param storage     Storage service pointer
- * @param path        File path to load from
- * @param uid         Output: tag UID
- * @param pages       Output: array of at least 64 uint32_t
- * @param page_valid  Output: array of at least 64 bool
- * @param max_page    Output: max page number
- * @return true on success
  */
 bool hitag_s_dump_load(
     void* storage,
     const char* path,
     uint32_t* uid,
+    uint32_t* pages,
+    bool* page_valid,
+    int* max_page);
+
+/* --- Debug Trace ---
+ * When enabled, protocol functions append detailed RF transaction logs
+ * to an internal FuriString buffer. Use start/stop/save functions
+ * to manage the trace lifecycle.
+ *
+ * Intended for offline analysis with analyze_trace.py.
+ */
+
+/** Start debug trace — allocates buffer, enables logging */
+void hitag_s_debug_trace_start(void);
+
+/** Stop debug trace — disables logging, returns buffer (caller must free with furi_string_free) */
+void* hitag_s_debug_trace_stop(void); /* Returns FuriString* (void* to avoid furi include) */
+
+/** Save debug trace to .htsd file */
+bool hitag_s_debug_trace_save(void* storage, const char* path, void* trace_string);
+
+/** Perform a full debug read: UID + SELECT + Auth + Read all pages, with tracing */
+HitagSResult hitag_s_debug_read_sequence(
+    uint32_t* uid_out,
+    uint32_t* config_out,
     uint32_t* pages,
     bool* page_valid,
     int* max_page);

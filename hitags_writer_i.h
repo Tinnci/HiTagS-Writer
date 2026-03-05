@@ -67,6 +67,8 @@ typedef enum {
     HitagSEventCloneFailed,
     HitagSEventWipeOk,
     HitagSEventWipeFailed,
+    HitagSEventDebugOk,
+    HitagSEventDebugFailed,
 } HitagSCustomEvent;
 
 /* --- Views --- */
@@ -89,6 +91,7 @@ typedef enum {
     HitagSWorkerFullDump,
     HitagSWorkerCloneDump, /* Write loaded dump to tag (UID + config + data) */
     HitagSWorkerWipeTag, /* Wipe tag to factory defaults */
+    HitagSWorkerDebugRead, /* Debug read: full read with RF trace capture */
 } HitagSWorkerOp;
 
 /* --- Main App Structure --- */
@@ -145,6 +148,9 @@ struct HitagSApp {
 
     /* Wipe result */
     int wipe_count; /**< Number of pages wiped */
+
+    /* Debug trace */
+    void* debug_trace; /**< FuriString* trace buffer from debug read (void* to avoid include) */
 
     /* Text buffers */
     char text_store[HITAGS_WRITER_TEXT_STORE_SIZE + 1];

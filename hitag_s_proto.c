@@ -10,8 +10,72 @@
 #include "em4100_encode.h"
 #include <furi.h>
 #include <furi_hal.h>
+#include <flipper_format/flipper_format.h>
+#include <storage/storage.h>
 
 #define TAG "HitagS"
+
+/* ============================================================
+ * Debug Trace — internal state
+ * ============================================================ */
+static FuriString* g_debug_trace = NULL;
+static bool g_trace_active = false;
+
+/** Append formatted text to trace buffer (if tracing is active) */
+static void trace_append(const char* fmt, ...) {
+    if(!g_trace_active || !g_debug_trace) return;
+    va_list args;
+    va_start(args, fmt);
+    furi_string_cat_vprintf(g_debug_trace, fmt, args);
+    va_end(args);
+}
+
+void hitag_s_debug_trace_start(void) {
+    if(g_debug_trace) {
+        furi_string_free(g_debug_trace);
+    }
+    g_debug_trace = furi_string_alloc();
+    furi_string_cat_str(g_debug_trace, "=== HiTag S Debug Trace ===\n");
+    g_trace_active = true;
+    FURI_LOG_I(TAG, "Debug trace started");
+}
+
+void* hitag_s_debug_trace_stop(void) {
+    g_trace_active = false;
+    FuriString* result = g_debug_trace;
+    g_debug_trace = NULL;
+    FURI_LOG_I(TAG, "Debug trace stopped (%d bytes)", result ? (int)furi_string_size(result) : 0);
+    return result;
+}
+
+#define HITAGS_TRACE_FILETYPE "HiTag S Debug Trace"
+#define HITAGS_TRACE_VERSION  1
+
+bool hitag_s_debug_trace_save(void* storage_ptr, const char* path, void* trace_string) {
+    FuriString* trace = (FuriString*)trace_string;
+    if(!trace || furi_string_size(trace) == 0) return false;
+
+    Storage* storage = (Storage*)storage_ptr;
+    File* file = storage_file_alloc(storage);
+    bool ok = false;
+
+    if(storage_file_open(file, path, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
+        size_t len = furi_string_size(trace);
+        size_t written = storage_file_write(file, furi_string_get_cstr(trace), len);
+        ok = (written == len);
+        if(ok) {
+            FURI_LOG_I(TAG, "Trace saved: %s (%d bytes)", path, (int)len);
+        } else {
+            FURI_LOG_E(TAG, "Trace write error: %d/%d", (int)written, (int)len);
+        }
+    } else {
+        FURI_LOG_E(TAG, "Trace file open failed: %s", path);
+    }
+
+    storage_file_close(file);
+    storage_file_free(file);
+    return ok;
+}
 
 /* ============================================================
  * CRC-8 Hitag S (polynomial 0x1D, init 0xFF)
@@ -456,15 +520,19 @@ static size_t hitag_s_send_receive(
 
     if(hs_capture.edge_count == 0) {
         FURI_LOG_D(TAG, "RX: no edges (timeout %lu us)", (unsigned long)rx_timeout_us);
+        trace_append("  RX: no edges (timeout %lu us)\n", (unsigned long)rx_timeout_us);
         return 0;
     }
+
+    const char* mode_str = rx_mode == HitagSRxAC2K ? "AC2K" :
+                                                     (rx_mode == HitagSRxMC2K ? "MC2K" : "MC4K");
 
     FURI_LOG_D(
         TAG,
         "RX: %d edges%s (mode=%s)",
         (int)hs_capture.edge_count,
         hs_capture.overflow ? " [OVERFLOW]" : "",
-        rx_mode == HitagSRxAC2K ? "AC2K" : (rx_mode == HitagSRxMC2K ? "MC2K" : "MC4K"));
+        mode_str);
 
     /* Log raw edges at DEBUG level (first 20) */
     size_t log_count = (hs_capture.edge_count < 20) ? hs_capture.edge_count : 20;
@@ -477,6 +545,23 @@ static size_t hitag_s_send_receive(
             (unsigned long)hs_capture.durations[i]);
     }
 
+    /* Trace: log ALL edges */
+    if(g_trace_active) {
+        trace_append(
+            "  RX: %d edges%s mode=%s\n",
+            (int)hs_capture.edge_count,
+            hs_capture.overflow ? " [OVERFLOW]" : "",
+            mode_str);
+        trace_append("  EDGES:");
+        for(size_t i = 0; i < hs_capture.edge_count; i++) {
+            trace_append(
+                " %s:%lu",
+                hs_capture.levels[i] ? "H" : "L",
+                (unsigned long)hs_capture.durations[i]);
+        }
+        trace_append("\n");
+    }
+
     /* Decode using appropriate decoder */
     size_t bits;
     if(rx_mode == HitagSRxAC2K) {
@@ -484,6 +569,19 @@ static size_t hitag_s_send_receive(
     } else {
         uint32_t threshold = (rx_mode == HitagSRxMC2K) ? 384 : HITAG_S_MC4K_THRESHOLD_US;
         bits = hitag_s_decode_mc4k(&hs_capture, rx_data, rx_max_bits, sof_bits, threshold);
+    }
+
+    /* Trace: log decode result */
+    if(g_trace_active) {
+        trace_append("  DECODE: %d bits", (int)bits);
+        if(bits > 0) {
+            size_t bytes = (bits + 7) / 8;
+            trace_append(" =");
+            for(size_t i = 0; i < bytes && i < 6; i++) {
+                trace_append(" %02X", rx_data[i]);
+            }
+        }
+        trace_append("\n");
     }
 
     return bits;
@@ -558,6 +656,7 @@ static inline size_t hitag_s_data_sof(void) {
 #define HITAG_S_RX_TIMEOUT_ACK  5000 /* MC4K ACK response (~2.5ms + margin) */
 
 HitagSResult hitag_s_uid_request(uint32_t* uid) {
+    trace_append("\n--- UID_REQUEST ---\n");
     /* Try STD mode first (simplest framing), then ADV2 (which we know works) */
     for(size_t c = 0; c < 2; c++) {
         uint8_t cmd[1] = {0};
@@ -569,6 +668,10 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
             "TX: UID_REQ_%s (5 bits, val=0x%02X)",
             proto_modes[c].name,
             proto_modes[c].cmd_5bit);
+        trace_append(
+            "  TX: UID_REQ_%s (5 bits, val=0x%02X)\n",
+            proto_modes[c].name,
+            proto_modes[c].cmd_5bit);
 
         uint32_t prev_uid = 0;
         size_t stable_count = 0;
@@ -576,6 +679,7 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
 
         for(size_t attempt = 0; attempt < 6; attempt++) {
             uint8_t rx[4] = {0};
+            trace_append("  attempt %d/%s:\n", (int)(attempt + 1), proto_modes[c].name);
 
             /* UID response is AC2K per Hitag S anti-collision; use MC2K as fallback
              * for clone variants that may answer with Manchester-like timing. */
@@ -615,6 +719,10 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
                         "UID: %08lX (via %s mode, stable)",
                         (unsigned long)*uid,
                         proto_modes[c].name);
+                    trace_append(
+                        "  RESULT: OK, UID=%08lX (mode=%s)\n",
+                        (unsigned long)*uid,
+                        proto_modes[c].name);
                     return HitagSResultOk;
                 }
             }
@@ -624,16 +732,20 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
 
         if(had_decode) {
             FURI_LOG_W(TAG, "%s: UID decoded but unstable", proto_modes[c].name);
+            trace_append("  %s: UID decoded but unstable\n", proto_modes[c].name);
         } else {
             FURI_LOG_W(TAG, "%s: no valid 32-bit UID response", proto_modes[c].name);
+            trace_append("  %s: no valid UID response\n", proto_modes[c].name);
         }
         furi_delay_us(HITAG_S_T_WAIT_SC_US);
     }
 
+    trace_append("  RESULT: TIMEOUT (no UID)\n");
     return HitagSResultTimeout;
 }
 
 HitagSResult hitag_s_select(uint32_t uid, uint32_t* config) {
+    trace_append("\n--- SELECT ---\n");
     /* SELECT = 00000 (5 bits) + UID (32 bits) + CRC8 (8 bits) = 45 bits */
     uint8_t cmd[6] = {0}; /* 48 bits capacity */
     size_t bit_pos = 0;
@@ -647,6 +759,7 @@ HitagSResult hitag_s_select(uint32_t uid, uint32_t* config) {
     pack_bits(cmd, &bit_pos, crc, 8);
 
     FURI_LOG_D(TAG, "TX: SELECT UID=%08lX CRC=%02X (45 bits)", (unsigned long)uid, crc);
+    trace_append("  TX: SELECT UID=%08lX CRC=%02X (45 bits)\n", (unsigned long)uid, crc);
 
     furi_delay_us(HITAG_S_T_WAIT_SC_US);
 
@@ -657,6 +770,7 @@ HitagSResult hitag_s_select(uint32_t uid, uint32_t* config) {
 
     if(rx_bits < 32) {
         FURI_LOG_W(TAG, "SELECT: only %d bits received", (int)rx_bits);
+        trace_append("  RESULT: TIMEOUT (%d bits)\n", (int)rx_bits);
         return HitagSResultTimeout;
     }
 
@@ -666,6 +780,7 @@ HitagSResult hitag_s_select(uint32_t uid, uint32_t* config) {
         uint8_t calc_crc = hitag_s_crc8(rx, 32);
         if(rx_crc != calc_crc) {
             FURI_LOG_W(TAG, "SELECT: CRC mismatch (rx=%02X calc=%02X)", rx_crc, calc_crc);
+            trace_append("  RESULT: CRC ERROR (rx=%02X calc=%02X)\n", rx_crc, calc_crc);
             return HitagSResultCrcError;
         }
         FURI_LOG_D(TAG, "SELECT: ADV CRC OK (%02X)", rx_crc);
@@ -675,10 +790,12 @@ HitagSResult hitag_s_select(uint32_t uid, uint32_t* config) {
               (uint32_t)rx[3];
 
     FURI_LOG_I(TAG, "Config page: %08lX", (unsigned long)*config);
+    trace_append("  RESULT: OK, Config=%08lX\n", (unsigned long)*config);
     return HitagSResultOk;
 }
 
 HitagSResult hitag_s_8268_authenticate(uint32_t password) {
+    trace_append("\n--- AUTH (pwd=0x%08lX) ---\n", (unsigned long)password);
     /* WRITE_PAGE to page 64 (authentication trigger for 8268)
      * WRITE_PAGE = 1000 (4 bits) + addr (8 bits) + CRC8 (8 bits) = 20 bits
      */
@@ -694,6 +811,7 @@ HitagSResult hitag_s_8268_authenticate(uint32_t password) {
     pack_bits(cmd, &bit_pos, crc, 8);
 
     FURI_LOG_D(TAG, "TX: WRITE_PAGE addr=64 CRC=%02X (20 bits) [AUTH step 1]", crc);
+    trace_append("  TX: WRITE_PAGE addr=64 CRC=%02X (20 bits) [step 1]\n", crc);
 
     furi_delay_us(HITAG_S_T_WAIT_SC_US);
 
@@ -704,6 +822,7 @@ HitagSResult hitag_s_8268_authenticate(uint32_t password) {
 
     if(ack_bits < 2) {
         FURI_LOG_W(TAG, "AUTH step 1: no ACK (%d bits)", (int)ack_bits);
+        trace_append("  step1: no ACK (%d bits)\n", (int)ack_bits);
         return HitagSResultTimeout;
     }
 
@@ -711,8 +830,10 @@ HitagSResult hitag_s_8268_authenticate(uint32_t password) {
     uint8_t ack_val = (ack[0] >> 6) & 0x03;
     if(ack_val != HITAG_S_ACK) {
         FURI_LOG_W(TAG, "AUTH step 1: NACK (got 0x%02X)", ack_val);
+        trace_append("  step1: NACK (0x%02X)\n", ack_val);
         return HitagSResultNack;
     }
+    trace_append("  step1: ACK OK\n");
 
     /* Now send 32-bit password + CRC8 = 40 bits */
     uint8_t pwd_frame[5] = {0};
@@ -726,6 +847,8 @@ HitagSResult hitag_s_8268_authenticate(uint32_t password) {
         "TX: Password=%08lX CRC=%02X (40 bits) [AUTH step 2]",
         (unsigned long)password,
         pwd_crc);
+    trace_append(
+        "  TX: Password=%08lX CRC=%02X (40 bits) [step 2]\n", (unsigned long)password, pwd_crc);
 
     furi_delay_us(HITAG_S_T_WAIT_SC_US);
 
@@ -736,16 +859,19 @@ HitagSResult hitag_s_8268_authenticate(uint32_t password) {
 
     if(ack2_bits < 2) {
         FURI_LOG_W(TAG, "AUTH step 2: no ACK (%d bits)", (int)ack2_bits);
+        trace_append("  step2: no ACK (%d bits)\n", (int)ack2_bits);
         return HitagSResultTimeout;
     }
 
     uint8_t ack2_val = (ack2[0] >> 6) & 0x03;
     if(ack2_val != HITAG_S_ACK) {
         FURI_LOG_W(TAG, "AUTH step 2: NACK (got 0x%02X)", ack2_val);
+        trace_append("  step2: NACK (0x%02X)\n", ack2_val);
         return HitagSResultNack;
     }
 
     FURI_LOG_I(TAG, "8268 authentication successful!");
+    trace_append("  RESULT: AUTH OK\n");
     return HitagSResultOk;
 }
 
@@ -818,6 +944,7 @@ HitagSResult hitag_s_write_page(uint8_t page, uint32_t data) {
 }
 
 HitagSResult hitag_s_read_page(uint8_t page, uint32_t* data) {
+    trace_append("\n--- READ_PAGE %d ---\n", page);
     /* READ_PAGE = 1100 (4 bits) + addr (8 bits) + CRC8 (8 bits) = 20 bits */
     uint8_t cmd[3] = {0};
     size_t bit_pos = 0;
@@ -838,6 +965,7 @@ HitagSResult hitag_s_read_page(uint8_t page, uint32_t* data) {
 
     if(rx_bits < 32) {
         FURI_LOG_W(TAG, "READ_PAGE addr=%d: only %d bits received", page, (int)rx_bits);
+        trace_append("  RESULT: TIMEOUT (%d bits)\n", (int)rx_bits);
         return HitagSResultTimeout;
     }
 
@@ -848,6 +976,7 @@ HitagSResult hitag_s_read_page(uint8_t page, uint32_t* data) {
         if(rx_crc != calc_crc) {
             FURI_LOG_W(
                 TAG, "READ_PAGE addr=%d: CRC mismatch (rx=%02X calc=%02X)", page, rx_crc, calc_crc);
+            trace_append("  RESULT: CRC ERROR (rx=%02X calc=%02X)\n", rx_crc, calc_crc);
             return HitagSResultCrcError;
         }
     }
@@ -856,6 +985,7 @@ HitagSResult hitag_s_read_page(uint8_t page, uint32_t* data) {
             (uint32_t)rx[3];
 
     FURI_LOG_I(TAG, "READ_PAGE addr=%d: %08lX", page, (unsigned long)*data);
+    trace_append("  RESULT: OK, data=%08lX\n", (unsigned long)*data);
     return HitagSResultOk;
 }
 
@@ -1512,11 +1642,127 @@ HitagSResult hitag_s_8268_wipe_sequence(uint32_t password, int max_page, int* pa
 }
 
 /* ============================================================
- * Dump File Save / Load
+ * Debug Read Sequence — full read with RF trace capture
  * ============================================================ */
 
-#include <flipper_format/flipper_format.h>
-#include <storage/storage.h>
+HitagSResult hitag_s_debug_read_sequence(
+    uint32_t* uid_out,
+    uint32_t* config_out,
+    uint32_t* pages,
+    bool* page_valid,
+    int* max_page) {
+    uint32_t uid = 0;
+    uint32_t config = 0;
+
+    /* Trace is already started by caller (hitag_s_debug_trace_start) */
+    trace_append("\n=== DEBUG READ SEQUENCE ===\n");
+
+    hitag_s_field_on();
+    trace_append("Field ON (125kHz)\n");
+
+    /* Step 1: UID request */
+    HitagSResult result = hitag_s_uid_request(&uid);
+    if(result != HitagSResultOk) {
+        trace_append("ABORT: UID request failed (result=%d)\n", (int)result);
+        hitag_s_field_off();
+        return result;
+    }
+
+    if(uid_out) *uid_out = uid;
+    pages[0] = uid;
+    page_valid[0] = true;
+
+    /* Step 2: SELECT */
+    result = hitag_s_select(uid, &config);
+    if(result != HitagSResultOk) {
+        trace_append("ABORT: SELECT failed (result=%d)\n", (int)result);
+        hitag_s_field_off();
+        return result;
+    }
+
+    if(config_out) *config_out = config;
+
+    /* Parse config */
+    HitagSConfig cfg = hitag_s_parse_config(config);
+    int max_pg = hitag_s_max_page(&cfg);
+    if(max_page) *max_page = max_pg;
+
+    trace_append(
+        "Config: MEMT=%d max_page=%d auth=%d LKP=%d LCON=%d\n",
+        cfg.MEMT,
+        max_pg,
+        cfg.auth,
+        cfg.LKP,
+        cfg.LCON);
+    trace_append("Config: TTFC=%d TTFDR=%d TTFM=%d\n", cfg.TTFC, cfg.TTFDR, cfg.TTFM);
+
+    /* Step 3: Authenticate with multi-password */
+    trace_append("\n--- AUTH MULTI ---\n");
+    result = hitag_s_8268_authenticate_multi(NULL, 0);
+    if(result != HitagSResultOk) {
+        trace_append("ABORT: AUTH failed (result=%d)\n", (int)result);
+        hitag_s_field_off();
+        return result;
+    }
+
+    /* Step 4: Read config page after auth */
+    result = hitag_s_read_page(1, &pages[1]);
+    if(result == HitagSResultOk) {
+        page_valid[1] = true;
+        config = pages[1];
+        cfg = hitag_s_parse_config(config);
+    } else {
+        pages[1] = config;
+        page_valid[1] = true;
+        trace_append("  (using config from SELECT)\n");
+    }
+
+    /* Step 5: Read password pages */
+    for(uint8_t p = 2; p <= 3; p++) {
+        result = hitag_s_read_page(p, &pages[p]);
+        page_valid[p] = (result == HitagSResultOk);
+    }
+
+    /* Step 6: Read all data pages */
+    for(int p = 4; p <= max_pg; p++) {
+        result = hitag_s_read_page((uint8_t)p, &pages[p]);
+        page_valid[p] = (result == HitagSResultOk);
+    }
+
+    /* Mark remaining as invalid */
+    for(int p = max_pg + 1; p < HITAG_S_MAX_PAGES; p++) {
+        page_valid[p] = false;
+    }
+
+    /* Summary */
+    int read_count = 0;
+    for(int p = 0; p <= max_pg; p++) {
+        if(page_valid[p]) read_count++;
+    }
+    trace_append(
+        "\n=== SUMMARY: %d/%d pages read, UID=%08lX ===\n",
+        read_count,
+        max_pg + 1,
+        (unsigned long)uid);
+
+    /* Append page table */
+    trace_append("\nPAGE TABLE:\n");
+    for(int p = 0; p <= max_pg; p++) {
+        if(page_valid[p]) {
+            trace_append("  [%2d] %08lX\n", p, (unsigned long)pages[p]);
+        } else {
+            trace_append("  [%2d] --------\n", p);
+        }
+    }
+
+    hitag_s_field_off();
+    trace_append("Field OFF\n");
+    return HitagSResultOk;
+}
+
+/* ============================================================
+ * Dump File Save / Load
+ * ============================================================ */
 
 #define HITAGS_DUMP_FILETYPE "HiTag S 8268 Dump"
 #define HITAGS_DUMP_VERSION  1
