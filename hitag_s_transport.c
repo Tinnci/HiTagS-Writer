@@ -7,6 +7,8 @@
 #include <furi.h>
 #include <furi_hal.h>
 
+static bool hitag_s_field_active = false;
+
 static void hitag_s_send_bit(bool value) {
     uint32_t t_low = HITAG_S_T_LOW_CYCLES * HITAG_S_T0_US;
     uint32_t t_total = value ? HITAG_S_T_1_CYCLES * HITAG_S_T0_US :
@@ -101,15 +103,20 @@ void hitag_s_send_htu_frame_with_early_rx(
 void hitag_s_field_on(void) {
     furi_hal_rfid_tim_read_start(125000, 0.5f);
     furi_hal_rfid_pin_pull_release();
+    hitag_s_field_active = true;
     furi_delay_us(HITAG_S_T_WAIT_POWERUP_US);
 }
 
 void hitag_s_field_off(void) {
-    furi_hal_rfid_tim_read_stop();
-    furi_hal_rfid_pins_reset();
+    if(hitag_s_field_active) {
+        furi_hal_rfid_tim_read_stop();
+        furi_hal_rfid_pins_reset();
+        hitag_s_field_active = false;
+    }
 }
 
 void hitag_s_field_on_no_wait(void) {
     furi_hal_rfid_tim_read_start(125000, 0.5f);
     furi_hal_rfid_pin_pull_release();
+    hitag_s_field_active = true;
 }

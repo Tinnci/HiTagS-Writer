@@ -422,8 +422,17 @@ class SourceInvariantTests(unittest.TestCase):
         self.assertIn("HITAG_HTU_WAKE_DELAYS_US", session)
         self.assertIn("HITAG_S_T_WAIT_FIRST_US", sequence)
         self.assertIn("hitag_s_field_on_no_wait()", sequence)
+        self.assertIn("if(field_started)", sequence)
+        self.assertIn("HTU wake prep", sequence)
         self.assertIn("HTU wake attempt", sequence)
         self.assertNotIn("hitag_s_field_on();", sequence)
+
+    def test_rf_field_off_is_idempotent(self):
+        transport = (ROOT / "hitag_s_transport.c").read_text()
+        self.assertIn("static bool hitag_s_field_active", transport)
+        self.assertIn("if(hitag_s_field_active)", transport)
+        self.assertIn("hitag_s_field_active = true", transport)
+        self.assertIn("hitag_s_field_active = false", transport)
 
     def test_tools_menu_has_dedicated_htu_probe_entry(self):
         config = (ROOT / "scenes/hitags_writer_scene_config.h").read_text()

@@ -1026,15 +1026,25 @@ HitagSResult hitag_htu_probe_uid_sequence(HitagHtuProbeInfo* info) {
     HitagHtuProbeInfo best_info = {0};
     HitagSResult best_result = HitagSResultTimeout;
     uint32_t best_score = 0xFFFFFFFFU;
+    bool field_started = false;
 
     for(size_t i = 0; i < COUNT_OF(HITAG_HTU_WAKE_DELAYS_US); i++) {
         const uint32_t wake_delay_us = HITAG_HTU_WAKE_DELAYS_US[i];
         HitagHtuProbeInfo attempt_info = {0};
 
-        hitag_s_field_off();
-        furi_delay_us(HITAG_HTU_FIELD_RESET_US);
-        hitag_s_field_on_no_wait();
-        furi_delay_us(wake_delay_us);
+        FURI_LOG_I(
+            TAG,
+            "HTU wake prep %d/%d reset_us=%lu",
+            (int)(i + 1),
+            (int)COUNT_OF(HITAG_HTU_WAKE_DELAYS_US),
+            (unsigned long)((i == 0) ? 0U : HITAG_HTU_FIELD_RESET_US));
+        if(field_started) {
+            hitag_s_field_off();
+            field_started = false;
+        }
+        if(i > 0) {
+            furi_delay_ms(HITAG_HTU_FIELD_RESET_US / 1000U);
+        }
 
         FURI_LOG_I(
             TAG,
@@ -1042,16 +1052,21 @@ HitagSResult hitag_htu_probe_uid_sequence(HitagHtuProbeInfo* info) {
             (int)(i + 1),
             (int)COUNT_OF(HITAG_HTU_WAKE_DELAYS_US),
             (unsigned long)wake_delay_us);
+        hitag_s_field_on_no_wait();
+        field_started = true;
+        furi_delay_us(wake_delay_us);
+
         trace_append(
             "\n--- HTU_WAKE attempt=%d/%d delay_us=%lu pm3_first_wait_us=%lu reset_us=%lu ---\n",
             (int)(i + 1),
             (int)COUNT_OF(HITAG_HTU_WAKE_DELAYS_US),
             (unsigned long)wake_delay_us,
             (unsigned long)HITAG_S_T_WAIT_FIRST_US,
-            (unsigned long)HITAG_HTU_FIELD_RESET_US);
+            (unsigned long)((i == 0) ? 0U : HITAG_HTU_FIELD_RESET_US));
 
         HitagSResult result = hitag_htu_probe_uid(&attempt_info);
         hitag_s_field_off();
+        field_started = false;
 
         if(result == HitagSResultOk) {
             if(info) *info = attempt_info;
