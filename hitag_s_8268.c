@@ -9,13 +9,19 @@
 #include <furi.h>
 #include <string.h>
 
-#define TAG "HitagS8268"
+#define TAG                                     "HitagS8268"
+#define HITAG_S_DEBUG_READ_BUDGET_MS            30000
+#define HITAG_S_DEBUG_READ_MAX_SESSION_ATTEMPTS 80
 
 static void trace_append(const char* fmt, ...) {
     va_list args;
     va_start(args, fmt);
     hitag_s_trace_vappend(fmt, args);
     va_end(args);
+}
+
+static bool hitag_s_debug_read_budget_expired(uint32_t start_tick) {
+    return (uint32_t)(furi_get_tick() - start_tick) >= HITAG_S_DEBUG_READ_BUDGET_MS;
 }
 
 HitagSResult hitag_s_read_uid_sequence(uint32_t* uid) {
@@ -427,8 +433,26 @@ HitagSResult hitag_s_debug_read_sequence_ex(
         "Field ON: carrier=125000Hz duty=0.5 pull=release powerup_us=%d\n",
         HITAG_S_T_WAIT_POWERUP_US);
 
-    HitagSSessionInfo session;
-    HitagSResult result = hitag_s_open_session(&session);
+    HitagSSessionInfo session = {0};
+    HitagSResult result = HitagSResultTimeout;
+    uint32_t start_tick = furi_get_tick();
+    size_t session_attempt = 0;
+    while(!hitag_s_debug_read_budget_expired(start_tick) &&
+          session_attempt < HITAG_S_DEBUG_READ_MAX_SESSION_ATTEMPTS) {
+        session_attempt++;
+        trace_append(
+            "DEBUG_READ: session attempt %d budget_ms=%d elapsed_ticks=%lu\n",
+            (int)session_attempt,
+            HITAG_S_DEBUG_READ_BUDGET_MS,
+            (unsigned long)(uint32_t)(furi_get_tick() - start_tick));
+        result = hitag_s_open_session(&session);
+        if(result == HitagSResultOk) break;
+        trace_append(
+            "DEBUG_READ: session attempt %d failed (result=%d), retrying within budget\n",
+            (int)session_attempt,
+            (int)result);
+    }
+
     if(result != HitagSResultOk) {
         report->failure_stage = "UID";
         trace_append("ABORT: UID/SELECT session failed (result=%d)\n", (int)result);

@@ -1,0 +1,563 @@
+============================================================
+  Batch Summary
+============================================================
+pulled_traces/flipper_Trace_NoUID_6A1C450A_15187b.htsd | mode=STD | uid=- | accepted=- | marginal=- | start01=- | partial_uid=6 | empty_uid=0 | field=release | uid_tx=ok | select_tx=- | select_bits=0 | select_crc=- | select_sweep=0 | uid-fallback-low-entropy-rejected
+pulled_traces/flipper_Trace_NoUID_6A1C4CF2_11557b.htsd | mode=STD | uid=- | accepted=- | marginal=- | start01=- | partial_uid=0 | empty_uid=0 | field=release | uid_tx=- | select_tx=- | select_bits=0 | select_crc=- | select_sweep=0 | uid-rf-or-window
+
+TRACE FILE: pulled_traces/flipper_Trace_NoUID_6A1C450A_15187b.htsd
+============================================================
+  HiTag S Debug Trace Analysis Report
+============================================================
+
+LF field: carrier=125000Hz duty=0.5 pull=release powerup_us=3000
+Protocol mode: STD
+
+----------------------------------------
+RF Transaction Log
+----------------------------------------
+
+[1] UID_REQUEST
+  TX: UID_REQ_STD (5 bits, val=0x06)
+  TX: UID_REQ_ADV1 (5 bits, val=0x19)
+  TX: UID_REQ_ADV2 (5 bits, val=0x18)
+  Capture 1 after TX: UID_REQ_STD (5 bits, val=0x06): 84 edges, mode=AC2K, decoded=22 bits, tx_frame=30/5b tx_us=1280, rx_meta=elapsed:9300us idle:1200us timeout:25000us final_edges:84
+    UID TX frame check: OK (30, 5 bits, tx_us=1280)
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Gap at period[1]: 7507µs (very long)
+  Glitch at period[2]: 6µs
+  Glitch at period[3]: 7µs
+  Glitch at period[4]: 23µs
+  Glitch at period[5]: 5µs
+  Glitch at period[6]: 7µs
+  Glitch at period[7]: 7µs
+  Glitch at period[8]: 6µs
+  Glitch at period[9]: 7µs
+  Glitch at period[10]: 7µs
+  Glitch at period[11]: 6µs
+  Glitch at period[12]: 7µs
+  Glitch at period[13]: 7µs
+  Glitch at period[14]: 8µs
+  Glitch at period[15]: 7µs
+  Re-decode AC2K: 22 bits = 4408C4
+    ⚠ AC2K noisy candidate: 14 glitches, 1 long AC gaps
+  Capture 2 after TX: UID_REQ_STD (5 bits, val=0x06): 88 edges, mode=AC2K, decoded=29 bits, tx_frame=30/5b tx_us=1280, rx_meta=elapsed:19000us idle:1200us timeout:25000us final_edges:88
+    UID TX frame check: OK (30, 5 bits, tx_us=1280)
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 11µs
+  Gap at period[1]: 3917µs (very long)
+  Glitch at period[3]: 62µs
+  Glitch at period[4]: 8µs
+  Glitch at period[5]: 8µs
+  Glitch at period[6]: 6µs
+  Glitch at period[7]: 6µs
+  Glitch at period[8]: 22µs
+  Glitch at period[9]: 7µs
+  Re-decode AC2K: 29 bits = 54081188
+    ⚠ AC2K noisy candidate: 7 glitches, 1 long AC gaps
+  Capture 3 after TX: UID_REQ_STD (5 bits, val=0x06): 126 edges, mode=AC2K, decoded=28 bits, tx_frame=30/5b tx_us=1280, rx_meta=elapsed:19000us idle:1200us timeout:25000us final_edges:126
+    UID TX frame check: OK (30, 5 bits, tx_us=1280)
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 12µs
+  Gap at period[1]: 3919µs (very long)
+  Glitch at period[2]: 5µs
+  Glitch at period[3]: 7µs
+  Glitch at period[4]: 6µs
+  Glitch at period[5]: 7µs
+  Glitch at period[6]: 8µs
+  Glitch at period[7]: 6µs
+  Glitch at period[8]: 6µs
+  Glitch at period[9]: 7µs
+  Glitch at period[10]: 6µs
+  Glitch at period[11]: 6µs
+  Glitch at period[12]: 7µs
+  Glitch at period[13]: 6µs
+  Glitch at period[14]: 6µs
+  Glitch at period[15]: 7µs
+  Glitch at period[16]: 8µs
+  Glitch at period[17]: 7µs
+  Glitch at period[18]: 7µs
+  Glitch at period[19]: 6µs
+  Glitch at period[20]: 7µs
+  Glitch at period[21]: 7µs
+  Glitch at period[22]: 8µs
+  Glitch at period[23]: 6µs
+  Glitch at period[24]: 6µs
+  Glitch at period[25]: 7µs
+  Glitch at period[26]: 7µs
+  Glitch at period[27]: 6µs
+  Glitch at period[28]: 18µs
+  Re-decode AC2K: 28 bits = 28102310
+    ⚠ AC2K noisy candidate: 27 glitches, 1 long AC gaps
+  Capture 4 after TX: UID_REQ_STD (5 bits, val=0x06): 114 edges, mode=AC2K, decoded=28 bits, tx_frame=30/5b tx_us=1280, rx_meta=elapsed:18900us idle:1200us timeout:25000us final_edges:114
+    UID TX frame check: OK (30, 5 bits, tx_us=1280)
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 14µs
+  Gap at period[1]: 3877µs (very long)
+  Glitch at period[2]: 16µs
+  Glitch at period[3]: 6µs
+  Glitch at period[4]: 22µs
+  Glitch at period[5]: 23µs
+  Glitch at period[6]: 6µs
+  Glitch at period[7]: 7µs
+  Glitch at period[8]: 6µs
+  Glitch at period[9]: 6µs
+  Glitch at period[10]: 7µs
+  Glitch at period[11]: 6µs
+  Glitch at period[12]: 5µs
+  Glitch at period[13]: 16µs
+  Glitch at period[14]: 7µs
+  Glitch at period[15]: 6µs
+  Glitch at period[16]: 7µs
+  Glitch at period[17]: 7µs
+  Glitch at period[18]: 5µs
+  Glitch at period[19]: 16µs
+  Glitch at period[20]: 7µs
+  Glitch at period[21]: 7µs
+  Glitch at period[22]: 7µs
+  Re-decode AC2K: 28 bits = 28102310
+    ⚠ AC2K noisy candidate: 21 glitches, 1 long AC gaps
+  Capture 5 after TX: UID_REQ_STD (5 bits, val=0x06): 120 edges, mode=AC2K, decoded=28 bits, tx_frame=30/5b tx_us=1280, rx_meta=elapsed:19000us idle:1200us timeout:25000us final_edges:120
+    UID TX frame check: OK (30, 5 bits, tx_us=1280)
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 9µs
+  Gap at period[1]: 3919µs (very long)
+  Glitch at period[2]: 6µs
+  Glitch at period[3]: 8µs
+  Glitch at period[4]: 6µs
+  Glitch at period[5]: 7µs
+  Glitch at period[6]: 7µs
+  Glitch at period[7]: 7µs
+  Glitch at period[8]: 6µs
+  Glitch at period[9]: 7µs
+  Glitch at period[10]: 6µs
+  Glitch at period[11]: 8µs
+  Glitch at period[12]: 8µs
+  Glitch at period[13]: 7µs
+  Glitch at period[14]: 6µs
+  Glitch at period[15]: 7µs
+  Glitch at period[16]: 6µs
+  Glitch at period[17]: 6µs
+  Glitch at period[18]: 8µs
+  Glitch at period[19]: 14µs
+  Glitch at period[20]: 24µs
+  Glitch at period[21]: 6µs
+  Glitch at period[22]: 16µs
+  Glitch at period[23]: 5µs
+  Glitch at period[24]: 8µs
+  Glitch at period[25]: 9µs
+  Re-decode AC2K: 28 bits = 28102310
+    ⚠ AC2K noisy candidate: 24 glitches, 1 long AC gaps
+  Capture 6 after TX: UID_REQ_STD (5 bits, val=0x06): 118 edges, mode=AC2K, decoded=28 bits, tx_frame=30/5b tx_us=1280, rx_meta=elapsed:19000us idle:1200us timeout:25000us final_edges:118
+    UID TX frame check: OK (30, 5 bits, tx_us=1280)
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 14µs
+  Gap at period[1]: 3921µs (very long)
+  Glitch at period[2]: 5µs
+  Glitch at period[3]: 6µs
+  Glitch at period[4]: 7µs
+  Glitch at period[5]: 7µs
+  Glitch at period[6]: 7µs
+  Glitch at period[7]: 8µs
+  Glitch at period[8]: 6µs
+  Glitch at period[9]: 6µs
+  Glitch at period[10]: 7µs
+  Glitch at period[11]: 7µs
+  Glitch at period[12]: 7µs
+  Glitch at period[13]: 24µs
+  Glitch at period[14]: 6µs
+  Glitch at period[15]: 7µs
+  Glitch at period[16]: 6µs
+  Glitch at period[17]: 5µs
+  Glitch at period[18]: 8µs
+  Glitch at period[19]: 8µs
+  Glitch at period[20]: 7µs
+  Glitch at period[21]: 7µs
+  Glitch at period[22]: 6µs
+  Glitch at period[23]: 7µs
+  Glitch at period[24]: 28µs
+  Re-decode AC2K: 28 bits = 28102310
+    ⚠ AC2K noisy candidate: 23 glitches, 1 long AC gaps
+  Capture 7 after TX: UID_REQ_ADV1 (5 bits, val=0x19): 132 edges, mode=AC2K, decoded=30 bits, tx_frame=C8/5b tx_us=1344, rx_meta=elapsed:20000us idle:1200us timeout:25000us final_edges:132
+    UID TX frame check: OK (C8, 5 bits, tx_us=1344)
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 12µs
+  Gap at period[1]: 3919µs (very long)
+  Glitch at period[2]: 5µs
+  Glitch at period[3]: 8µs
+  Glitch at period[4]: 6µs
+  Glitch at period[5]: 6µs
+  Glitch at period[6]: 8µs
+  Glitch at period[7]: 7µs
+  Glitch at period[8]: 7µs
+  Glitch at period[9]: 7µs
+  Glitch at period[10]: 6µs
+  Glitch at period[11]: 6µs
+  Glitch at period[12]: 7µs
+  Glitch at period[13]: 7µs
+  Glitch at period[14]: 6µs
+  Glitch at period[15]: 7µs
+  Glitch at period[16]: 7µs
+  Glitch at period[17]: 5µs
+  Glitch at period[18]: 7µs
+  Glitch at period[19]: 8µs
+  Glitch at period[20]: 6µs
+  Glitch at period[21]: 7µs
+  Glitch at period[22]: 7µs
+  Glitch at period[23]: 7µs
+  Glitch at period[24]: 6µs
+  Glitch at period[25]: 7µs
+  Glitch at period[26]: 7µs
+  Glitch at period[27]: 7µs
+  Glitch at period[28]: 17µs
+  Re-decode AC2K: 30 bits = 4A0408C4
+    ⚠ AC2K noisy candidate: 27 glitches, 1 long AC gaps
+  Capture 8 after TX: UID_REQ_ADV1 (5 bits, val=0x19): 72 edges, mode=AC2K, decoded=32 bits, tx_frame=C8/5b tx_us=1344, rx_meta=elapsed:25000us idle:200us timeout:25000us final_edges:72
+    UID TX frame check: OK (C8, 5 bits, tx_us=1344)
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 8µs
+  Gap at period[1]: 6196µs (very long)
+  Re-decode AC2K: 35 bits = 0000000000
+    ⚠ AC2K noisy candidate: 0 glitches, 4 long AC gaps
+  Capture 9 after TX: UID_REQ_ADV1 (5 bits, val=0x19): 86 edges, mode=AC2K, decoded=32 bits, tx_frame=C8/5b tx_us=1344, rx_meta=elapsed:25000us idle:0us timeout:25000us final_edges:86
+    UID TX frame check: OK (C8, 5 bits, tx_us=1344)
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 14µs
+  Gap at period[1]: 2504µs (very long)
+  Re-decode AC2K: 42 bits = 000000000000
+    ⚠ AC2K noisy candidate: 0 glitches, 6 long AC gaps
+  Capture 10 after TX: UID_REQ_ADV1 (5 bits, val=0x19): 84 edges, mode=AC2K, decoded=32 bits, tx_frame=C8/5b tx_us=1344, rx_meta=elapsed:25000us idle:100us timeout:25000us final_edges:84
+    UID TX frame check: OK (C8, 5 bits, tx_us=1344)
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 13µs
+  Gap at period[1]: 2404µs (very long)
+  Re-decode AC2K: 41 bits = 000000000000
+    ⚠ AC2K noisy candidate: 0 glitches, 5 long AC gaps
+  Capture 11 after TX: UID_REQ_ADV1 (5 bits, val=0x19): 98 edges, mode=AC2K, decoded=32 bits, tx_frame=C8/5b tx_us=1344, rx_meta=elapsed:25000us idle:100us timeout:25000us final_edges:98
+    UID TX frame check: OK (C8, 5 bits, tx_us=1344)
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 12µs
+  Gap at period[1]: 2657µs (very long)
+  Glitch at period[3]: 23µs
+  Glitch at period[4]: 6µs
+  Glitch at period[5]: 15µs
+  Glitch at period[6]: 31µs
+  Glitch at period[7]: 23µs
+  Glitch at period[8]: 7µs
+  Re-decode AC2K: 42 bits = 400000000000
+    ⚠ AC2K noisy candidate: 6 glitches, 5 long AC gaps
+  Capture 12 after TX: UID_REQ_ADV1 (5 bits, val=0x19): 80 edges, mode=AC2K, decoded=32 bits, tx_frame=C8/5b tx_us=1344, rx_meta=elapsed:25000us idle:0us timeout:25000us final_edges:80
+    UID TX frame check: OK (C8, 5 bits, tx_us=1344)
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 13µs
+  Gap at period[1]: 2265µs (very long)
+  Re-decode AC2K: 39 bits = 0000000000
+    ⚠ AC2K noisy candidate: 0 glitches, 9 long AC gaps
+  Capture 13 after TX: UID_REQ_ADV2 (5 bits, val=0x18): 84 edges, mode=AC2K, decoded=32 bits, tx_frame=C0/5b tx_us=1280, rx_meta=elapsed:25000us idle:100us timeout:25000us final_edges:84
+    UID TX frame check: OK (C0, 5 bits, tx_us=1280)
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 12µs
+  Gap at period[1]: 2668µs (very long)
+  Glitch at period[2]: 5µs
+  Re-decode AC2K: 39 bits = 4000000000
+    ⚠ AC2K noisy candidate: 1 glitches, 9 long AC gaps
+  Capture 14 after TX: UID_REQ_ADV2 (5 bits, val=0x18): 88 edges, mode=AC2K, decoded=32 bits, tx_frame=C0/5b tx_us=1280, rx_meta=elapsed:25000us idle:100us timeout:25000us final_edges:88
+    UID TX frame check: OK (C0, 5 bits, tx_us=1280)
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 14µs
+  Gap at period[1]: 2753µs (very long)
+  Glitch at period[2]: 6µs
+  Glitch at period[3]: 54µs
+  Glitch at period[4]: 6µs
+  Glitch at period[5]: 6µs
+  Re-decode AC2K: 39 bits = 4000000000
+    ⚠ AC2K noisy candidate: 4 glitches, 9 long AC gaps
+  Capture 15 after TX: UID_REQ_ADV2 (5 bits, val=0x18): 122 edges, mode=AC2K, decoded=32 bits, tx_frame=C0/5b tx_us=1280, rx_meta=elapsed:25000us idle:100us timeout:25000us final_edges:122
+    UID TX frame check: OK (C0, 5 bits, tx_us=1280)
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 13µs
+  Gap at period[1]: 2658µs (very long)
+  Glitch at period[2]: 6µs
+  Glitch at period[3]: 8µs
+  Glitch at period[4]: 7µs
+  Glitch at period[5]: 6µs
+  Glitch at period[6]: 7µs
+  Glitch at period[7]: 6µs
+  Glitch at period[8]: 7µs
+  Glitch at period[9]: 7µs
+  Glitch at period[10]: 6µs
+  Glitch at period[11]: 6µs
+  Glitch at period[12]: 7µs
+  Glitch at period[13]: 6µs
+  Glitch at period[14]: 6µs
+  Glitch at period[15]: 6µs
+  Glitch at period[16]: 7µs
+  Glitch at period[17]: 6µs
+  Glitch at period[18]: 7µs
+  Glitch at period[19]: 7µs
+  Glitch at period[20]: 8µs
+  Glitch at period[21]: 7µs
+  Glitch at period[22]: 46µs
+  Glitch at period[23]: 19µs
+  Re-decode AC2K: 38 bits = 0000000000
+    ⚠ AC2K noisy candidate: 22 glitches, 10 long AC gaps
+  Capture 16 after TX: UID_REQ_ADV2 (5 bits, val=0x18): 78 edges, mode=AC2K, decoded=32 bits, tx_frame=C0/5b tx_us=1280, rx_meta=elapsed:25000us idle:200us timeout:25000us final_edges:78
+    UID TX frame check: OK (C0, 5 bits, tx_us=1280)
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 10µs
+  Gap at period[1]: 2349µs (very long)
+  Re-decode AC2K: 38 bits = 0000000000
+    ⚠ AC2K noisy candidate: 0 glitches, 11 long AC gaps
+  Capture 17 after TX: UID_REQ_ADV2 (5 bits, val=0x18): 108 edges, mode=AC2K, decoded=32 bits, tx_frame=C0/5b tx_us=1280, rx_meta=elapsed:25000us idle:100us timeout:25000us final_edges:108
+    UID TX frame check: OK (C0, 5 bits, tx_us=1280)
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 10µs
+  Gap at period[1]: 2679µs (very long)
+  Glitch at period[2]: 7µs
+  Glitch at period[3]: 15µs
+  Glitch at period[4]: 5µs
+  Glitch at period[5]: 7µs
+  Glitch at period[6]: 6µs
+  Glitch at period[7]: 6µs
+  Glitch at period[8]: 6µs
+  Glitch at period[9]: 7µs
+  Glitch at period[10]: 6µs
+  Glitch at period[11]: 16µs
+  Glitch at period[12]: 13µs
+  Glitch at period[13]: 6µs
+  Glitch at period[14]: 6µs
+  Glitch at period[15]: 47µs
+  Glitch at period[16]: 42µs
+  Re-decode AC2K: 38 bits = 0000000000
+    ⚠ AC2K noisy candidate: 15 glitches, 10 long AC gaps
+  Capture 18 after TX: UID_REQ_ADV2 (5 bits, val=0x18): 84 edges, mode=AC2K, decoded=32 bits, tx_frame=C0/5b tx_us=1280, rx_meta=elapsed:25000us idle:0us timeout:25000us final_edges:84
+    UID TX frame check: OK (C0, 5 bits, tx_us=1280)
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 13µs
+  Gap at period[1]: 2256µs (very long)
+  Re-decode AC2K: 41 bits = 000000000000
+    ⚠ AC2K noisy candidate: 0 glitches, 9 long AC gaps
+  RESULT: TIMEOUT (no UID)
+  ABORT: UID request failed (result=1)
+
+----------------------------------------
+Authentication Analysis
+----------------------------------------
+No authentication attempts found in trace.
+
+----------------------------------------
+UID Candidate Model
+----------------------------------------
+40000000 | source=start01 | score=76 | support=14 | rejected:low-entropy
+60000000 | source=start01 | score=56 | support=9 | rejected:low-entropy
+
+=== SUMMARY: 0/1 pages read, UID=00000000, result=1 ===
+
+============================================================
+  End of analysis
+============================================================
+
+TRACE FILE: pulled_traces/flipper_Trace_NoUID_6A1C4CF2_11557b.htsd
+============================================================
+  HiTag S Debug Trace Analysis Report
+============================================================
+
+LF field: carrier=125000Hz duty=0.5 pull=release powerup_us=3000
+Protocol mode: STD uid_rx=AC2K data_rx=MC4K
+
+----------------------------------------
+RF Transaction Log
+----------------------------------------
+
+[1] OPEN_SESSION
+  TX: UID_REQ_FADV (5 bits, val=0x1A)
+  TX: UID_REQ_ADV1 (5 bits, val=0x19)
+  TX: UID_REQ_ADV2 (5 bits, val=0x18)
+  TX: UID_REQ_STD (5 bits, val=0x06)
+  Capture 1 after TX: UID_REQ_FADV (5 bits, val=0x1A): 168 edges, mode=AC4K, decoded=32 bits, tx_frame=D0/5b tx_us=1344, rx_meta=elapsed:25000us idle:100us timeout:25000us final_edges:168
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Gap at period[1]: 6636µs (very long)
+  Glitch at period[2]: 14µs
+  Glitch at period[3]: 7µs
+  Glitch at period[4]: 6µs
+  Glitch at period[5]: 7µs
+  Glitch at period[6]: 7µs
+  Glitch at period[7]: 7µs
+  Glitch at period[8]: 5µs
+  Glitch at period[9]: 23µs
+  Glitch at period[10]: 7µs
+  Glitch at period[11]: 8µs
+  Glitch at period[12]: 6µs
+  Glitch at period[13]: 24µs
+  Glitch at period[14]: 7µs
+  Glitch at period[15]: 6µs
+  Glitch at period[16]: 14µs
+  Glitch at period[17]: 23µs
+  Glitch at period[18]: 7µs
+  Glitch at period[19]: 7µs
+  Glitch at period[20]: 8µs
+  Glitch at period[21]: 5µs
+  Gap at period[46]: 1022µs (very long)
+  Gap at period[47]: 1021µs (very long)
+  Gap at period[53]: 1022µs (very long)
+  Gap at period[55]: 767µs (very long)
+  Gap at period[57]: 765µs (very long)
+  Gap at period[60]: 1022µs (very long)
+  Gap at period[61]: 1023µs (very long)
+  Gap at period[63]: 766µs (very long)
+  Gap at period[71]: 766µs (very long)
+  Re-decode AC4K: 63 bits = 0000000000000000
+    ⚠ AC2K noisy candidate: 20 glitches, 10 long AC gaps
+  Capture 2 after TX: UID_REQ_FADV (5 bits, val=0x1A): 84 edges, mode=AC4K, decoded=32 bits, tx_frame=D0/5b tx_us=1344, rx_meta=elapsed:25000us idle:100us timeout:25000us final_edges:84
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 9µs
+  Gap at period[1]: 3465µs (very long)
+  Gap at period[3]: 767µs (very long)
+  Gap at period[6]: 1024µs (very long)
+  Gap at period[7]: 1024µs (very long)
+  Gap at period[9]: 767µs (very long)
+  Gap at period[17]: 766µs (very long)
+  Re-decode AC4K: 41 bits = 400000000000
+    ⚠ AC2K noisy candidate: 0 glitches, 6 long AC gaps
+  Capture 3 after TX: UID_REQ_FADV (5 bits, val=0x1A): 82 edges, mode=AC4K, decoded=32 bits, tx_frame=D0/5b tx_us=1344, rx_meta=elapsed:25000us idle:0us timeout:25000us final_edges:82
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 9µs
+  Gap at period[1]: 3806µs (very long)
+  Gap at period[2]: 1023µs (very long)
+  Gap at period[3]: 1023µs (very long)
+  Gap at period[5]: 768µs (very long)
+  Gap at period[13]: 766µs (very long)
+  Re-decode AC4K: 40 bits = 0000000000
+    ⚠ AC2K noisy candidate: 0 glitches, 5 long AC gaps
+  Capture 4 after TX: UID_REQ_ADV1 (5 bits, val=0x19): 150 edges, mode=AC2K, decoded=32 bits, tx_frame=C8/5b tx_us=1344, rx_meta=elapsed:25000us idle:100us timeout:25000us final_edges:150
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Gap at period[1]: 7545µs (very long)
+  Glitch at period[2]: 6µs
+  Glitch at period[3]: 7µs
+  Glitch at period[4]: 6µs
+  Glitch at period[5]: 6µs
+  Glitch at period[6]: 7µs
+  Glitch at period[7]: 7µs
+  Glitch at period[8]: 7µs
+  Glitch at period[9]: 22µs
+  Glitch at period[10]: 6µs
+  Glitch at period[11]: 7µs
+  Glitch at period[12]: 7µs
+  Glitch at period[13]: 22µs
+  Glitch at period[14]: 7µs
+  Glitch at period[15]: 7µs
+  Glitch at period[16]: 6µs
+  Glitch at period[17]: 6µs
+  Glitch at period[18]: 8µs
+  Glitch at period[19]: 7µs
+  Glitch at period[20]: 5µs
+  Glitch at period[21]: 5µs
+  Glitch at period[22]: 6µs
+  Glitch at period[23]: 6µs
+  Glitch at period[24]: 6µs
+  Re-decode AC2K: 51 bits = 00000000000000
+    ⚠ AC2K noisy candidate: 23 glitches, 9 long AC gaps
+  Capture 5 after TX: UID_REQ_ADV1 (5 bits, val=0x19): 88 edges, mode=AC2K, decoded=32 bits, tx_frame=C8/5b tx_us=1344, rx_meta=elapsed:25000us idle:0us timeout:25000us final_edges:88
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 9µs
+  Gap at period[1]: 3335µs (very long)
+  Re-decode AC2K: 43 bits = 400000000000
+    ⚠ AC2K noisy candidate: 0 glitches, 10 long AC gaps
+  Capture 6 after TX: UID_REQ_ADV1 (5 bits, val=0x19): 86 edges, mode=AC2K, decoded=32 bits, tx_frame=C8/5b tx_us=1344, rx_meta=elapsed:25000us idle:0us timeout:25000us final_edges:86
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 12µs
+  Gap at period[1]: 4234µs (very long)
+  Re-decode AC2K: 42 bits = 000000000000
+    ⚠ AC2K noisy candidate: 0 glitches, 4 long AC gaps
+  Capture 7 after TX: UID_REQ_ADV2 (5 bits, val=0x18): 116 edges, mode=AC2K, decoded=32 bits, tx_frame=C0/5b tx_us=1280, rx_meta=elapsed:25000us idle:0us timeout:25000us final_edges:116
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Gap at period[1]: 7610µs (very long)
+  Glitch at period[2]: 5µs
+  Glitch at period[3]: 6µs
+  Glitch at period[4]: 7µs
+  Glitch at period[5]: 71µs
+  Glitch at period[6]: 6µs
+  Glitch at period[7]: 71µs
+  Glitch at period[8]: 26µs
+  Re-decode AC2K: 50 bits = 00000000000000
+    ⚠ AC2K noisy candidate: 7 glitches, 9 long AC gaps
+  Capture 8 after TX: UID_REQ_ADV2 (5 bits, val=0x18): 114 edges, mode=AC2K, decoded=32 bits, tx_frame=C0/5b tx_us=1280, rx_meta=elapsed:25000us idle:100us timeout:25000us final_edges:114
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 9µs
+  Gap at period[1]: 3471µs (very long)
+  Glitch at period[2]: 23µs
+  Glitch at period[3]: 6µs
+  Glitch at period[4]: 8µs
+  Glitch at period[5]: 22µs
+  Glitch at period[6]: 6µs
+  Glitch at period[7]: 6µs
+  Glitch at period[8]: 7µs
+  Glitch at period[9]: 9µs
+  Glitch at period[10]: 5µs
+  Glitch at period[11]: 5µs
+  Glitch at period[12]: 23µs
+  Glitch at period[13]: 7µs
+  Glitch at period[14]: 7µs
+  Glitch at period[15]: 6µs
+  Glitch at period[16]: 7µs
+  Glitch at period[17]: 24µs
+  Glitch at period[18]: 7µs
+  Glitch at period[19]: 6µs
+  Glitch at period[20]: 6µs
+  Glitch at period[21]: 5µs
+  Re-decode AC2K: 36 bits = 0000000000
+    ⚠ AC2K noisy candidate: 20 glitches, 10 long AC gaps
+  Capture 9 after TX: UID_REQ_ADV2 (5 bits, val=0x18): 76 edges, mode=AC2K, decoded=32 bits, tx_frame=C0/5b tx_us=1280, rx_meta=elapsed:25000us idle:0us timeout:25000us final_edges:76
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 10µs
+  Gap at period[1]: 4047µs (very long)
+  Re-decode AC2K: 37 bits = 0000000000
+    ⚠ AC2K noisy candidate: 0 glitches, 9 long AC gaps
+  Capture 10 after TX: UID_REQ_STD (5 bits, val=0x06): 134 edges, mode=AC2K, decoded=32 bits, tx_frame=30/5b tx_us=1280, rx_meta=elapsed:25000us idle:0us timeout:25000us final_edges:134
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 8µs
+  Gap at period[1]: 7622µs (very long)
+  Glitch at period[2]: 30µs
+  Glitch at period[3]: 5µs
+  Glitch at period[4]: 6µs
+  Glitch at period[5]: 7µs
+  Glitch at period[6]: 7µs
+  Glitch at period[7]: 30µs
+  Glitch at period[8]: 7µs
+  Glitch at period[9]: 8µs
+  Glitch at period[10]: 5µs
+  Glitch at period[11]: 6µs
+  Glitch at period[12]: 7µs
+  Glitch at period[13]: 7µs
+  Glitch at period[14]: 31µs
+  Glitch at period[15]: 7µs
+  Glitch at period[16]: 11µs
+  Re-decode AC2K: 51 bits = 00000000000000
+    ⚠ AC2K noisy candidate: 15 glitches, 9 long AC gaps
+  Capture 11 after TX: UID_REQ_STD (5 bits, val=0x06): 74 edges, mode=AC2K, decoded=32 bits, tx_frame=30/5b tx_us=1280, rx_meta=elapsed:25000us idle:0us timeout:25000us final_edges:74
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 9µs
+  Gap at period[1]: 3775µs (very long)
+  Re-decode AC2K: 36 bits = 0000000000
+    ⚠ AC2K noisy candidate: 0 glitches, 10 long AC gaps
+  Capture 12 after TX: UID_REQ_STD (5 bits, val=0x06): 74 edges, mode=AC2K, decoded=32 bits, tx_frame=30/5b tx_us=1280, rx_meta=elapsed:25000us idle:200us timeout:25000us final_edges:74
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 8µs
+  Gap at period[1]: 3863µs (very long)
+  Re-decode AC2K: 36 bits = 0000000000
+    ⚠ AC2K noisy candidate: 0 glitches, 10 long AC gaps
+  ABORT: UID/SELECT session failed (result=1)
+
+----------------------------------------
+Authentication Analysis
+----------------------------------------
+No authentication attempts found in trace.
+
+=== SUMMARY: 0/1 pages read, UID=00000000, result=1, mode=STD, stage=UID ===
+
+============================================================
+  End of analysis
+============================================================

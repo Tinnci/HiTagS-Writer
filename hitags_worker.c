@@ -278,7 +278,12 @@ static void hitags_worker_debug_read(HitagSApp* app) {
         hitags_worker_count_dump_pages(app);
         FURI_LOG_I(TAG, "Debug read OK — %d pages", app->dump_read_count);
         view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventDebugOk);
-    } else if(app->debug_trace) {
+    } else if(app->debug_trace && !report.session.selected) {
+        FURI_LOG_W(TAG, "Debug read captured only rejected noise; trace save disabled");
+        furi_string_free((FuriString*)app->debug_trace);
+        app->debug_trace = NULL;
+        view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventDebugFailed);
+    } else if(app->debug_trace && report.session.selected) {
         hitags_worker_count_any_dump_pages(app);
         FURI_LOG_W(
             TAG,

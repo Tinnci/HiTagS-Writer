@@ -46,7 +46,8 @@ static void trace_append(const char* fmt, ...) {
  * ============================================================ */
 
 /* Maximum edges we can capture (128 bits × 2 edges/bit + SOF + margin) */
-#define HITAG_S_MAX_EDGES 512
+#define HITAG_S_MAX_EDGES              512
+#define HITAG_S_TRACE_MAX_EDGES_PER_RX 96
 
 /* Edge capture context */
 typedef struct {
@@ -121,18 +122,11 @@ static size_t hitag_s_decode_ac2k(
 
         if(first_period) {
             first_period = false;
-            FURI_LOG_I(TAG, "AC2K: skip startup period %lu", (unsigned long)rb);
             continue;
         }
 
         if(rb < glitch_us) continue;
 
-        /* Log first 10 periods for debugging */
-        if(period_count < 10) {
-            const char* cls = (rb >= thresh_34_us) ? "4H" : (rb >= thresh_23_us) ? "3H" : "2H";
-            FURI_LOG_I(
-                TAG, "%s p[%d]: %lu (%s)", mode_name, (int)period_count, (unsigned long)rb, cls);
-        }
         period_count++;
 
         if(rb >= thresh_34_us) {
@@ -173,30 +167,9 @@ static size_t hitag_s_decode_ac2k(
         }
     }
 
-    FURI_LOG_I(
-        TAG,
-        "%s: %d edges, %d periods -> %d bits (%d SOF + %d data)",
-        mode_name,
-        (int)cap->edge_count,
-        (int)period_count,
-        (int)total_bits,
-        (int)sof_bits,
-        (int)data_bits);
-
-    if(data_bits > 0) {
-        size_t bytes = (data_bits + 7) / 8;
-        if(bytes >= 4) {
-            FURI_LOG_D(
-                TAG,
-                "%s data: %02X %02X %02X %02X (%d bits)",
-                mode_name,
-                out_data[0],
-                out_data[1],
-                out_data[2],
-                out_data[3],
-                (int)data_bits);
-        }
-    }
+    UNUSED(mode_name);
+    UNUSED(period_count);
+    UNUSED(total_bits);
 
     return data_bits;
 }
@@ -316,9 +289,6 @@ static size_t hitag_s_decode_mc4k(
     uint32_t glitch_min = (threshold <= 128) ? 25 :
                                                ((threshold > 200) ? 80 : HITAG_S_MC4K_GLITCH_US);
 
-    FURI_LOG_D(
-        TAG, "MC: threshold=%lu, glitch=%lu", (unsigned long)threshold, (unsigned long)glitch_min);
-
     /* --- Step 1-2: Extract pulse sequence from capture events ---
      * CC3 (level=true):  HIGH pulse duration (COMP1 HIGH time)
      * CC4 (level=false): period (rising-to-rising)
@@ -361,11 +331,6 @@ static size_t hitag_s_decode_mc4k(
         if(!started) {
             /* First pair: carrier HIGH → skip, keep LOW as SOF start */
             started = true;
-            FURI_LOG_D(
-                TAG,
-                "MC: initial carrier H=%lu, SOF start L=%lu",
-                (unsigned long)high_dur,
-                (unsigned long)low_dur);
             if(low_dur >= glitch_min && hp_count < MC4K_MAX_HALF_PERIODS) {
                 size_t n = (low_dur < threshold) ? 1 : 2;
                 for(size_t j = 0; j < n && hp_count < MC4K_MAX_HALF_PERIODS; j++) {
@@ -395,8 +360,6 @@ static size_t hitag_s_decode_mc4k(
         hp_levels[hp_count++] = true;
     }
 
-    FURI_LOG_D(TAG, "MC: %d half-periods from %d edges", (int)hp_count, (int)cap->edge_count);
-
     /* --- Step 3-4: Pair half-periods into bits ---
      * bit value = 1 if second half is HIGH, 0 if second half is LOW */
     size_t total_bits = hp_count / 2;
@@ -413,29 +376,6 @@ static size_t hitag_s_decode_mc4k(
                 out_data[data_bits / 8] |= (1 << (7 - (data_bits % 8)));
             }
             data_bits++;
-        }
-    }
-
-    FURI_LOG_I(
-        TAG,
-        "MC4K: %d edges -> %d hp -> %d bits (%d SOF + %d data)",
-        (int)cap->edge_count,
-        (int)hp_count,
-        (int)total_bits,
-        (int)sof_bits,
-        (int)data_bits);
-
-    if(data_bits > 0) {
-        size_t bytes = (data_bits + 7) / 8;
-        if(bytes >= 4) {
-            FURI_LOG_D(
-                TAG,
-                "MC4K data: %02X %02X %02X %02X (%d bits)",
-                out_data[0],
-                out_data[1],
-                out_data[2],
-                out_data[3],
-                (int)data_bits);
         }
     }
 
@@ -519,32 +459,25 @@ static size_t hitag_s_send_receive(
         (int)hs_capture.edge_count);
 
     if(hs_capture.edge_count == 0) {
-        FURI_LOG_D(TAG, "RX: no edges (timeout %lu us)", (unsigned long)rx_timeout_us);
+        if(!hitag_s_trace_is_active()) {
+            FURI_LOG_D(TAG, "RX: no edges (timeout %lu us)", (unsigned long)rx_timeout_us);
+        }
         trace_append("  RX: no edges (timeout %lu us)\n", (unsigned long)rx_timeout_us);
         return 0;
     }
 
     const char* mode_str = hitag_s_rx_mode_name(rx_mode);
 
-    FURI_LOG_D(
-        TAG,
-        "RX: %d edges%s (mode=%s)",
-        (int)hs_capture.edge_count,
-        hs_capture.overflow ? " [OVERFLOW]" : "",
-        mode_str);
-
-    /* Log raw edges at DEBUG level (first 20) */
-    size_t log_count = (hs_capture.edge_count < 20) ? hs_capture.edge_count : 20;
-    for(size_t i = 0; i < log_count; i++) {
+    if(!hitag_s_trace_is_active()) {
         FURI_LOG_D(
             TAG,
-            "  e[%d]: %s %lu",
-            (int)i,
-            hs_capture.levels[i] ? "H" : "L",
-            (unsigned long)hs_capture.durations[i]);
+            "RX: %d edges%s (mode=%s)",
+            (int)hs_capture.edge_count,
+            hs_capture.overflow ? " [OVERFLOW]" : "",
+            mode_str);
     }
 
-    /* Trace: log ALL edges */
+    /* Trace: log a bounded prefix of raw edges to avoid exhausting heap on noisy captures. */
     if(hitag_s_trace_is_active()) {
         trace_append(
             "  RX: %d edges%s mode=%s",
@@ -560,11 +493,18 @@ static size_t hitag_s_send_receive(
         }
         trace_append(" sof=%d expected_bits=%d\n", (int)sof_bits, (int)rx_max_bits);
         trace_append("  EDGES:");
-        for(size_t i = 0; i < hs_capture.edge_count; i++) {
+        size_t trace_edge_count = hs_capture.edge_count < HITAG_S_TRACE_MAX_EDGES_PER_RX ?
+                                      hs_capture.edge_count :
+                                      HITAG_S_TRACE_MAX_EDGES_PER_RX;
+        for(size_t i = 0; i < trace_edge_count; i++) {
             trace_append(
                 " %s:%lu",
                 hs_capture.levels[i] ? "H" : "L",
                 (unsigned long)hs_capture.durations[i]);
+        }
+        if(trace_edge_count < hs_capture.edge_count) {
+            trace_append(
+                " ... truncated_edges=%d", (int)(hs_capture.edge_count - trace_edge_count));
         }
         trace_append("\n");
     }

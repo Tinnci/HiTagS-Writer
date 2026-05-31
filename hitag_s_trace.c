@@ -7,10 +7,13 @@
 #include <furi.h>
 #include <storage/storage.h>
 
-#define TAG "HitagSTrace"
+#define TAG                       "HitagSTrace"
+#define HITAG_S_TRACE_MAX_BYTES   (48U * 1024U)
+#define HITAG_S_TRACE_TRUNCATE_AT (HITAG_S_TRACE_MAX_BYTES - 96U)
 
 static FuriString* g_debug_trace = NULL;
 static bool g_trace_active = false;
+static bool g_trace_truncated = false;
 
 bool hitag_s_trace_is_active(void) {
     return g_trace_active && g_debug_trace;
@@ -25,7 +28,19 @@ void hitag_s_trace_append(const char* fmt, ...) {
 
 void hitag_s_trace_vappend(const char* fmt, va_list args) {
     if(!hitag_s_trace_is_active()) return;
+    if(g_trace_truncated) return;
+    if(furi_string_size(g_debug_trace) >= HITAG_S_TRACE_TRUNCATE_AT) {
+        furi_string_cat_str(g_debug_trace, "\n... TRACE TRUNCATED: memory budget reached ...\n");
+        g_trace_truncated = true;
+        return;
+    }
+
     furi_string_cat_vprintf(g_debug_trace, fmt, args);
+    if(furi_string_size(g_debug_trace) >= HITAG_S_TRACE_TRUNCATE_AT) {
+        furi_string_left(g_debug_trace, HITAG_S_TRACE_TRUNCATE_AT);
+        furi_string_cat_str(g_debug_trace, "\n... TRACE TRUNCATED: memory budget reached ...\n");
+        g_trace_truncated = true;
+    }
 }
 
 void hitag_s_debug_trace_start(void) {
@@ -33,6 +48,7 @@ void hitag_s_debug_trace_start(void) {
         furi_string_free(g_debug_trace);
     }
     g_debug_trace = furi_string_alloc();
+    g_trace_truncated = false;
     furi_string_cat_str(g_debug_trace, "=== HiTag S Debug Trace v2 ===\n");
     g_trace_active = true;
     FURI_LOG_I(TAG, "Debug trace started");

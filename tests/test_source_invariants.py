@@ -54,6 +54,27 @@ class SourceInvariantTests(unittest.TestCase):
         self.assertIn("void* hitag_s_debug_trace_stop(void)", header)
         self.assertIn("bool hitag_s_debug_trace_save", header)
 
+    def test_trace_buffer_has_memory_budget_and_truncation_marker(self):
+        source = (ROOT / "hitag_s_trace.c").read_text()
+
+        self.assertIn("HITAG_S_TRACE_MAX_BYTES", source)
+        self.assertIn("g_trace_truncated", source)
+        self.assertIn("TRACE TRUNCATED", source)
+        self.assertIn("furi_string_left", source)
+
+    def test_rx_trace_limits_raw_edge_dump_size(self):
+        source = (ROOT / "hitag_s_session.c").read_text()
+        send_receive = source.split("static size_t hitag_s_send_receive", 1)[1].split(
+            "/* ============================================================\n"
+            " * Hitag S Command Builders",
+            1,
+        )[0]
+
+        self.assertIn("HITAG_S_TRACE_MAX_EDGES_PER_RX", source)
+        self.assertIn("trace_edge_count", send_receive)
+        self.assertIn("truncated_edges", send_receive)
+        self.assertNotIn("i < hs_capture.edge_count; i++", send_receive)
+
     def test_select_config_fallback_is_not_marked_as_real_page_read(self):
         source = (ROOT / "hitag_s_8268.c").read_text()
         self.assertIn("pages[1] = config;\n        page_valid[1] = false;", source)
@@ -277,6 +298,47 @@ class SourceInvariantTests(unittest.TestCase):
         self.assertIn("HitagSPageStatusReadError", debug_read_ex)
         self.assertIn("hitag_s_open_session", debug_read_ex)
         self.assertIn("READ_PAGE 1", debug_read_ex)
+
+    def test_debug_read_retries_session_open_for_30_second_budget(self):
+        source = (ROOT / "hitag_s_8268.c").read_text()
+        debug_read_ex = source.split("HitagSResult hitag_s_debug_read_sequence_ex", 1)[1]
+
+        self.assertRegex(source, r"HITAG_S_DEBUG_READ_BUDGET_MS\s+30000")
+        self.assertIn("hitag_s_debug_read_budget_expired", source)
+        self.assertIn("furi_get_tick()", source)
+        self.assertIn("session_attempt", debug_read_ex)
+        self.assertIn("while(!hitag_s_debug_read_budget_expired", debug_read_ex)
+        self.assertIn("DEBUG_READ: session attempt", debug_read_ex)
+
+    def test_debug_read_does_not_offer_save_for_noise_only_trace(self):
+        worker = (ROOT / "hitags_worker.c").read_text()
+        debug_read = worker.split("static void hitags_worker_debug_read", 1)[1].split(
+            "int32_t hitags_writer_worker_thread", 1
+        )[0]
+
+        self.assertIn("!report.session.selected", debug_read)
+        self.assertIn("furi_string_free((FuriString*)app->debug_trace)", debug_read)
+        self.assertIn("app->debug_trace = NULL", debug_read)
+        self.assertIn("report.session.selected", debug_read.split("HitagSEventDebugPartial", 1)[0])
+
+    def test_rf_decode_hot_path_does_not_flood_runtime_log(self):
+        source = (ROOT / "hitag_s_session.c").read_text()
+        ac_decode = source.split("static size_t hitag_s_decode_ac2k", 1)[1].split(
+            "static void hitag_s_ac2k_put_bit", 1
+        )[0]
+        mc_decode = source.split("static size_t hitag_s_decode_mc4k", 1)[1].split(
+            "static const char* hitag_s_rx_mode_name", 1
+        )[0]
+        send_receive = source.split("static size_t hitag_s_send_receive", 1)[1].split(
+            "/* ============================================================\n"
+            " * Hitag S Command Builders",
+            1,
+        )[0]
+
+        self.assertNotIn("e[%d]", send_receive)
+        self.assertNotIn("FURI_LOG_I(", ac_decode)
+        self.assertNotIn("FURI_LOG_I(", mc_decode)
+        self.assertNotIn("p[%d]", ac_decode)
 
     def test_rx_trace_records_window_timing_metadata(self):
         source = (ROOT / "hitag_s_session.c").read_text()
