@@ -622,6 +622,7 @@ static uint32_t hitag_htu_frame_duration_us(const uint8_t* data, size_t bits) {
         bool bit = (data[byte_idx] >> bit_idx) & 1U;
         duration += (bit ? HITAG_S_T_1_CYCLES : HITAG_S_T_0_CYCLES) * HITAG_S_T0_US;
     }
+    duration += HITAG_S_T_LOW_CYCLES * HITAG_S_T0_US;
     return duration;
 }
 

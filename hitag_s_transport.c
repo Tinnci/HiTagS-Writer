@@ -79,6 +79,8 @@ void hitag_s_send_htu_frame_with_early_rx(
     size_t bits,
     HitagSRxStartCallback start_rx,
     void* context) {
+    uint32_t t_low = HITAG_S_T_LOW_CYCLES * HITAG_S_T0_US;
+
     FURI_CRITICAL_ENTER();
     hitag_s_send_htu_sof();
     for(size_t i = 0; i < bits; i++) {
@@ -87,6 +89,11 @@ void hitag_s_send_htu_frame_with_early_rx(
         bool value = (data[byte_idx] >> bit_idx) & 1U;
         hitag_s_send_bit(value);
     }
+
+    /* Hitag µ EOF: Proxmark sends one final low pulse, then opens RX on carrier. */
+    furi_hal_rfid_tim_read_pause();
+    furi_delay_us(t_low);
+    furi_hal_rfid_tim_read_continue();
     if(start_rx) start_rx(context);
     FURI_CRITICAL_EXIT();
 }

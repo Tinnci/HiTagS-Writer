@@ -390,6 +390,20 @@ class SourceInvariantTests(unittest.TestCase):
         self.assertIn("HTU/8265 probe: no response", probe)
         self.assertIn("HTU/8265 probe: rejected response", probe)
 
+    def test_htu_transport_sends_eof_before_rx_capture(self):
+        source = (ROOT / "hitag_s_transport.c").read_text()
+        send = source.split("void hitag_s_send_htu_frame_with_early_rx", 1)[1].split(
+            "void hitag_s_field_on", 1
+        )[0]
+
+        self.assertIn("Hitag µ EOF", send)
+        self.assertIn("furi_hal_rfid_tim_read_pause()", send)
+        self.assertIn("if(start_rx) start_rx(context)", send)
+        self.assertLess(
+            send.rindex("furi_hal_rfid_tim_read_pause()"),
+            send.index("if(start_rx) start_rx(context)"),
+        )
+
     def test_rf_decode_hot_path_does_not_flood_runtime_log(self):
         source = (ROOT / "hitag_s_session.c").read_text()
         ac_decode = source.split("static size_t hitag_s_decode_ac2k", 1)[1].split(
