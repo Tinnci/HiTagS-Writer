@@ -12,7 +12,9 @@
 #include <furi.h>
 #include <furi_hal.h>
 
-#define TAG "HitagS"
+#define TAG                           "HitagS"
+#define HITAG_S_START01_CONSENSUS_MIN 8
+#define HITAG_S_START01_CONSENSUS_MAX 4
 
 /** Append formatted text to trace buffer (if tracing is active) */
 static void trace_append(const char* fmt, ...) {
@@ -67,6 +69,13 @@ static void hitag_s_capture_callback(bool level, uint32_t duration, void* contex
     } else {
         cap->overflow = true;
     }
+}
+
+static void hitag_s_capture_start(void* context) {
+    UNUSED(context);
+    hs_capture.edge_count = 0;
+    hs_capture.overflow = false;
+    furi_hal_rfid_tim_read_capture_start(hitag_s_capture_callback, (void*)&hs_capture);
 }
 
 /**
@@ -181,6 +190,56 @@ static size_t hitag_s_decode_ac2k(
                 out_data[2],
                 out_data[3],
                 (int)data_bits);
+        }
+    }
+
+    return data_bits;
+}
+
+static void hitag_s_ac2k_put_bit(uint8_t* out_data, size_t* data_bits, size_t max_bits, bool bit) {
+    if(*data_bits >= max_bits) return;
+    if(bit) {
+        out_data[*data_bits / 8] |= (1U << (7 - (*data_bits % 8)));
+    }
+    (*data_bits)++;
+}
+
+static size_t
+    hitag_s_decode_ac2k_start01(const HitagSCapture* cap, uint8_t* out_data, size_t max_bits) {
+    memset(out_data, 0, (max_bits + 7) / 8);
+
+    int lastbit = 0;
+    bool bSkip = false;
+    bool started = false;
+    size_t data_bits = 0;
+
+    for(size_t i = 0; i < cap->edge_count && data_bits < max_bits; i++) {
+        if(cap->levels[i]) continue;
+
+        uint32_t rb = cap->durations[i];
+        if(!started) {
+            if(rb < HITAG_S_AC2K_GLITCH_US) continue;
+            started = true;
+            hitag_s_ac2k_put_bit(out_data, &data_bits, max_bits, false);
+            hitag_s_ac2k_put_bit(out_data, &data_bits, max_bits, true);
+            continue;
+        }
+
+        if(rb < HITAG_S_AC2K_GLITCH_US) continue;
+
+        if(rb >= HITAG_S_AC2K_THRESH_34_US) {
+            lastbit = 0;
+            hitag_s_ac2k_put_bit(out_data, &data_bits, max_bits, false);
+        } else if(rb >= HITAG_S_AC2K_THRESH_23_US) {
+            lastbit = !lastbit;
+            hitag_s_ac2k_put_bit(out_data, &data_bits, max_bits, lastbit);
+            bSkip = (lastbit != 0);
+        } else {
+            if(!bSkip) {
+                lastbit = 1;
+                hitag_s_ac2k_put_bit(out_data, &data_bits, max_bits, true);
+            }
+            bSkip = !bSkip;
         }
     }
 
@@ -399,15 +458,7 @@ static size_t hitag_s_send_receive(
     uint32_t rx_timeout_us,
     HitagSRxMode rx_mode,
     size_t sof_bits) {
-    /* Send command in critical section (interrupts disabled = precise timing) */
-    FURI_CRITICAL_ENTER();
-    hitag_s_send_frame(tx_data, tx_bits);
-    FURI_CRITICAL_EXIT();
-
-    /* Now start capture — tag responds ~200µs after our stop bit */
-    hs_capture.edge_count = 0;
-    hs_capture.overflow = false;
-    furi_hal_rfid_tim_read_capture_start(hitag_s_capture_callback, (void*)&hs_capture);
+    hitag_s_send_frame_with_early_rx(tx_data, tx_bits, hitag_s_capture_start, NULL);
 
     /* Wait for tag response edges, then return as soon as the response goes idle.
      * HiTag S expects the next reader command in a short inter-frame window; waiting
@@ -434,7 +485,7 @@ static size_t hitag_s_send_receive(
     furi_hal_rfid_tim_read_capture_stop();
 
     trace_append(
-        "  RX_META: elapsed_us=%lu idle_us=%lu timeout_us=%lu final_edges=%d\n",
+        "  RX_META: elapsed_us=%lu idle_us=%lu timeout_us=%lu final_edges=%d early_rx=stop_tail\n",
         (unsigned long)elapsed_us,
         (unsigned long)idle_us,
         (unsigned long)rx_timeout_us,
@@ -549,8 +600,15 @@ static inline size_t hitag_s_data_sof(void) {
 #define HITAG_S_RX_TIMEOUT_DATA 15000 /* MC4K 32-bit response (~10ms + margin) */
 #define HITAG_S_RX_TIMEOUT_ACK  5000 /* MC4K ACK response (~2.5ms + margin) */
 
+typedef struct {
+    uint32_t uid;
+    size_t votes;
+} HitagSStart01Vote;
+
 HitagSResult hitag_s_uid_request(uint32_t* uid) {
     trace_append("\n--- UID_REQUEST ---\n");
+    HitagSStart01Vote start01_consensus[HITAG_S_START01_CONSENSUS_MAX] = {0};
+
     /* Try Proxmark's 8268 write mode first, then fall back to other observed modes. */
     for(size_t c = 0; c < COUNT_OF(proto_modes); c++) {
         uint8_t cmd[1] = {0};
@@ -584,6 +642,35 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
              * Flipper can be stable noise, so do not use them as UID truth. */
             size_t rx_bits = hitag_s_send_receive(
                 cmd, 5, rx, 32, HITAG_S_RX_TIMEOUT_UID, HitagSRxAC2K, proto_modes[c].uid_sof);
+
+            uint8_t start01_rx[4] = {0};
+            size_t start01_bits = hitag_s_decode_ac2k_start01(&hs_capture, start01_rx, 32);
+            if(start01_bits == 32) {
+                uint32_t start01_uid = ((uint32_t)start01_rx[0] << 24) |
+                                       ((uint32_t)start01_rx[1] << 16) |
+                                       ((uint32_t)start01_rx[2] << 8) | (uint32_t)start01_rx[3];
+                bool stored = false;
+                for(size_t v = 0; v < COUNT_OF(start01_consensus); v++) {
+                    if(start01_consensus[v].votes > 0 && start01_consensus[v].uid == start01_uid) {
+                        start01_consensus[v].votes++;
+                        stored = true;
+                        break;
+                    }
+                }
+                if(!stored) {
+                    for(size_t v = 0; v < COUNT_OF(start01_consensus); v++) {
+                        if(start01_consensus[v].votes == 0) {
+                            start01_consensus[v].uid = start01_uid;
+                            start01_consensus[v].votes = 1;
+                            break;
+                        }
+                    }
+                }
+                trace_append(
+                    "  %s: start01 candidate UID=%08lX\n",
+                    proto_modes[c].name,
+                    (unsigned long)start01_uid);
+            }
 
             if(rx_bits == 32) {
                 uint32_t current_uid = ((uint32_t)rx[0] << 24) | ((uint32_t)rx[1] << 16) |
@@ -668,6 +755,23 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
             trace_append("  %s: no valid UID response\n", proto_modes[c].name);
         }
         furi_delay_us(HITAG_S_T_WAIT_SC_US);
+    }
+
+    for(size_t v = 0; v < COUNT_OF(start01_consensus); v++) {
+        if(start01_consensus[v].votes >= HITAG_S_START01_CONSENSUS_MIN) {
+            *uid = start01_consensus[v].uid;
+            active_mode_idx = 0;
+            FURI_LOG_W(
+                TAG,
+                "UID: %08lX via start01 consensus (%d votes)",
+                (unsigned long)*uid,
+                (int)start01_consensus[v].votes);
+            trace_append(
+                "  RESULT: OK, UID=%08lX (mode=start01-consensus, AC2K)\n", (unsigned long)*uid);
+            trace_append(
+                "  start01: using consensus UID with %d votes\n", (int)start01_consensus[v].votes);
+            return HitagSResultOk;
+        }
     }
 
     trace_append("  RESULT: TIMEOUT (no UID)\n");

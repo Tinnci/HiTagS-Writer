@@ -242,6 +242,64 @@ def decode_ac2k(edges: list, sof_bits: int = 1) -> tuple:
     return data_bits, bytes(data[:(data_bits + 7) // 8])
 
 
+def decode_ac2k_start01(edges: list) -> tuple:
+    """
+    Decode AC2K by skipping the first valid startup interval and seeding 01.
+
+    This is only used for high-consensus UID fallback. Single captures are too
+    prone to false positives with this alignment.
+    """
+    THRESH_34 = 448
+    THRESH_23 = 320
+    GLITCH = 80
+
+    lastbit = 0
+    bSkip = False
+    started = False
+    data_bits = 0
+    max_bits = 64
+    data = bytearray(8)
+
+    def put_bit(bit: int) -> None:
+        nonlocal data_bits
+        if data_bits >= max_bits:
+            return
+        if bit:
+            data[data_bits // 8] |= (1 << (7 - (data_bits % 8)))
+        data_bits += 1
+
+    for e in edges:
+        if e.level == 'H' or data_bits >= max_bits:
+            continue
+
+        rb = e.duration
+        if not started:
+            if rb < GLITCH:
+                continue
+            started = True
+            put_bit(0)
+            put_bit(1)
+            continue
+
+        if rb < GLITCH:
+            continue
+
+        if rb >= THRESH_34:
+            lastbit = 0
+            put_bit(0)
+        elif rb >= THRESH_23:
+            lastbit = 1 - lastbit
+            put_bit(lastbit)
+            bSkip = (lastbit != 0)
+        else:
+            if not bSkip:
+                lastbit = 1
+                put_bit(1)
+            bSkip = not bSkip
+
+    return data_bits, bytes(data[:(data_bits + 7) // 8])
+
+
 def ac2k_quality(edges: list) -> dict:
     """Return simple quality metrics for a Flipper AC2K capture."""
     usable_periods = 0
@@ -313,6 +371,29 @@ def marginal_uid_candidates(tf) -> set:
             ):
                 candidates.add(data[:4].hex().upper())
     return candidates
+
+
+def start01_uid_consensus(tf, min_votes: int = 8) -> Optional[tuple[str, int]]:
+    """Return a high-vote start01 fallback UID candidate, if one is present."""
+    votes = {}
+    for txn in tf.transactions:
+        if txn.section != "UID_REQUEST":
+            continue
+        for cap in txn.captures:
+            if cap.mode != "AC2K":
+                continue
+            bits, data = decode_ac2k_start01(cap.edges)
+            if bits == 32:
+                uid = data[:4].hex().upper()
+                votes[uid] = votes.get(uid, 0) + 1
+
+    if not votes:
+        return None
+
+    uid, count = max(votes.items(), key=lambda item: item[1])
+    if count >= min_votes:
+        return uid, count
+    return None
 
 
 def pack_bits(buf: bytearray, bit_pos: int, value: int, n_bits: int) -> int:
@@ -987,6 +1068,7 @@ def _batch_hint(
     select_sweep_bits: int,
     accepted: set[str],
     marginal: set[str],
+    start01_consensus: Optional[tuple[str, int]],
 ) -> str:
     """Return the next investigation target for one trace row."""
     if tf.field_pull == "" or uid_tx == "legacy" or select_tx == "legacy":
@@ -1003,6 +1085,8 @@ def _batch_hint(
         return "uid-offline-recovered"
     if tf.uid is None and not accepted and marginal:
         return "uid-marginal-fallback"
+    if tf.uid is None and not accepted and not marginal and start01_consensus:
+        return "uid-start01-consensus"
     if tf.uid is None and not accepted:
         return "uid-rf-or-window"
     if select_tx == "ok" and select_bits == 0:
@@ -1030,6 +1114,8 @@ def generate_batch_summary(named_traces: list[tuple[str, TraceFile]]) -> str:
         accepted = ",".join(sorted(accepted_set)) or "-"
         marginal_set = marginal_uid_candidates(tf)
         marginal = ",".join(sorted(marginal_set)) or "-"
+        start01_consensus = start01_uid_consensus(tf)
+        start01 = f"{start01_consensus[0]}:{start01_consensus[1]}" if start01_consensus else "-"
         field = tf.field_pull or "legacy"
 
         uid_caps = [
@@ -1048,10 +1134,18 @@ def generate_batch_summary(named_traces: list[tuple[str, TraceFile]]) -> str:
             default=0,
         )
         hint = _batch_hint(
-            tf, uid_tx, select_tx, select_bits, select_sweep_bits, accepted_set, marginal_set)
+            tf,
+            uid_tx,
+            select_tx,
+            select_bits,
+            select_sweep_bits,
+            accepted_set,
+            marginal_set,
+            start01_consensus)
 
         lines.append(
-            f"{name} | uid={uid} | accepted={accepted} | marginal={marginal} | field={field} | "
+            f"{name} | uid={uid} | accepted={accepted} | marginal={marginal} | "
+            f"start01={start01} | field={field} | "
             f"uid_tx={uid_tx} | select_tx={select_tx} | select_bits={select_bits} | "
             f"select_sweep={select_sweep_bits} | {hint}"
         )

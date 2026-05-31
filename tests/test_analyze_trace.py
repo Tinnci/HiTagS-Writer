@@ -380,12 +380,12 @@ Field ON: carrier=125000Hz duty=0.5 pull=release powerup_us=3000
 
         self.assertIn("Batch Summary", summary)
         self.assertIn(
-            "old.htsd | uid=- | accepted=- | marginal=- | field=legacy | "
+            "old.htsd | uid=- | accepted=- | marginal=- | start01=- | field=legacy | "
             "uid_tx=legacy | select_tx=legacy",
             summary,
         )
         self.assertIn(
-            "new.htsd | uid=- | accepted=- | marginal=- | field=release | "
+            "new.htsd | uid=- | accepted=- | marginal=- | start01=- | field=release | "
             "uid_tx=ok | select_tx=ok",
             summary,
         )
@@ -589,6 +589,29 @@ Field ON: carrier=125000Hz duty=0.5 pull=release powerup_us=3000
         self.assertNotIn("52810231", analyze_trace.accepted_uid_candidates(parsed))
         self.assertIn("52810231", analyze_trace.marginal_uid_candidates(parsed))
         self.assertIn("uid-marginal-fallback", summary)
+
+    def test_latest_no_uid_trace_recovers_uid_from_start01_consensus(self):
+        trace_path = (
+            Path(__file__).resolve().parents[1] /
+            "pulled_traces/flipper_Trace_NoUID_6A1C3C24_12263b.htsd"
+        )
+        if not trace_path.exists():
+            self.skipTest("latest hardware trace fixture not present")
+
+        parsed = analyze_trace.parse_trace(trace_path.read_text())
+        summary = analyze_trace.generate_batch_summary([(str(trace_path), parsed)])
+
+        self.assertEqual(analyze_trace.start01_uid_consensus(parsed), ("52810231", 10))
+        self.assertIn("uid-start01-consensus", summary)
+
+    def test_start01_consensus_rejects_low_vote_old_false_candidate(self):
+        trace_path = Path(__file__).resolve().parents[1] / "trace_device_74A0408C_new.htsd"
+        if not trace_path.exists():
+            self.skipTest("hardware trace fixture not present")
+
+        parsed = analyze_trace.parse_trace(trace_path.read_text())
+
+        self.assertIsNone(analyze_trace.start01_uid_consensus(parsed))
 
 
 if __name__ == "__main__":

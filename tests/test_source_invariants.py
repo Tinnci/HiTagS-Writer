@@ -128,6 +128,17 @@ class SourceInvariantTests(unittest.TestCase):
         self.assertIn("RESULT: OK, UID=%08lX (mode=%s, AC2K, marginal)", uid_request)
         self.assertIn("using marginal noisy AC2K UID", uid_request)
 
+    def test_uid_request_uses_high_vote_start01_consensus_as_last_fallback(self):
+        source = (ROOT / "hitag_s_session.c").read_text()
+        uid_request = source.split("HitagSResult hitag_s_uid_request", 1)[1].split(
+            "static HitagSResult hitag_s_select_frame", 1
+        )[0]
+
+        self.assertIn("HITAG_S_START01_CONSENSUS_MIN", source)
+        self.assertIn("hitag_s_decode_ac2k_start01", source)
+        self.assertIn("start01_consensus", uid_request)
+        self.assertIn("RESULT: OK, UID=%08lX (mode=start01-consensus, AC2K)", uid_request)
+
     def test_all_uid_request_modes_decode_uid_without_extra_sof_strip(self):
         source = (ROOT / "hitag_s_session.c").read_text()
         proto_modes = source.split("static const HitagSProtoMode proto_modes[]", 1)[1].split(
@@ -151,6 +162,26 @@ class SourceInvariantTests(unittest.TestCase):
         self.assertIn("elapsed_us=", send_receive)
         self.assertIn("idle_us=", send_receive)
         self.assertIn("timeout_us=", send_receive)
+
+    def test_receive_capture_starts_during_stop_tail_not_after_full_frame(self):
+        header = (ROOT / "hitag_s_proto.h").read_text()
+        transport = (ROOT / "hitag_s_transport.c").read_text()
+        session = (ROOT / "hitag_s_session.c").read_text()
+        send_receive = session.split("static size_t hitag_s_send_receive", 1)[1].split(
+            "/* ============================================================\n"
+            " * Hitag S Command Builders",
+            1,
+        )[0]
+
+        self.assertIn("HitagSRxStartCallback", header)
+        self.assertIn("hitag_s_send_frame_with_early_rx", header)
+        self.assertIn("hitag_s_send_frame_with_early_rx(", send_receive)
+        self.assertNotIn("hitag_s_send_frame(tx_data, tx_bits)", send_receive)
+
+        early_rx = transport.split("void hitag_s_send_frame_with_early_rx", 1)[1].split(
+            "void hitag_s_field_on", 1
+        )[0]
+        self.assertLess(early_rx.index("start_rx(context)"), early_rx.index("furi_delay_us(t_stop)"))
 
     def test_app_menu_matches_official_style_grouped_flow(self):
         start = (ROOT / "scenes/hitags_writer_scene_start.c").read_text()

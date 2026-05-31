@@ -218,6 +218,8 @@ typedef enum {
     HitagSResultCrcError,
 } HitagSResult;
 
+typedef void (*HitagSRxStartCallback)(void* context);
+
 /**
  * @brief Calculate CRC-8 for Hitag S (polynomial 0x1D, init 0xFF)
  * @param data  Pointer to data bits (MSB first, packed in bytes)
@@ -232,6 +234,18 @@ uint8_t hitag_s_crc8(const uint8_t* data, size_t bits);
  * @param bits  Number of bits to send
  */
 void hitag_s_send_frame(const uint8_t* data, size_t bits);
+
+/**
+ * @brief Send a BPLM frame and open the RX capture window during the stop tail
+ *
+ * This removes the blind interval between reader EOF and tag response by
+ * starting capture immediately after the stop low pulse returns to carrier.
+ */
+void hitag_s_send_frame_with_early_rx(
+    const uint8_t* data,
+    size_t bits,
+    HitagSRxStartCallback start_rx,
+    void* context);
 
 /**
  * @brief Start 125 kHz carrier for Hitag S communication
