@@ -109,18 +109,39 @@ static bool hitag_s_codec_get_bit(const uint8_t* data, size_t bit_pos) {
     return (data[bit_pos / 8] >> (7 - (bit_pos % 8))) & 1U;
 }
 
+static void hitag_s_codec_put_bit(uint8_t* data, size_t bit_pos, bool bit) {
+    if(bit) {
+        data[bit_pos / 8] |= 1U << (7 - (bit_pos % 8));
+    }
+}
+
 bool hitag_htu_codec_decode_uid_response(
     const uint8_t* rx,
     size_t rx_bits,
     uint8_t uid[HITAG_HTU_UID_SIZE]) {
     const size_t expected_bits = 1 + (HITAG_HTU_UID_SIZE * 8) + 16;
-    if(rx_bits < expected_bits) return false;
-    if(hitag_htu_codec_crc16(rx, expected_bits, false) != 0) return false;
+    uint8_t normalized[9] = {0};
+    const uint8_t* checked = rx;
+    size_t uid_offset = 1;
+
+    if(rx_bits >= expected_bits) {
+        if(hitag_htu_codec_crc16(rx, expected_bits, false) != 0) return false;
+    } else if(rx_bits == expected_bits - 1) {
+        /* Some 8265-compatible tags/captures lose the leading error flag bit.
+         * Reconstruct the standard response as error_flag=0 + 48-bit UID + CRC16. */
+        for(size_t i = 0; i < rx_bits; i++) {
+            hitag_s_codec_put_bit(normalized, i + 1, hitag_s_codec_get_bit(rx, i));
+        }
+        if(hitag_htu_codec_crc16(normalized, expected_bits, false) != 0) return false;
+        checked = normalized;
+    } else {
+        return false;
+    }
 
     for(size_t i = 0; i < HITAG_HTU_UID_SIZE; i++) {
         uint8_t b = 0;
         for(size_t j = 0; j < 8; j++) {
-            if(hitag_s_codec_get_bit(rx, 1 + (i * 8) + j)) {
+            if(hitag_s_codec_get_bit(checked, uid_offset + (i * 8) + j)) {
                 b |= (uint8_t)(1U << (7 - j));
             }
         }

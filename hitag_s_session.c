@@ -420,6 +420,13 @@ static size_t hitag_htu_copy_window(
 }
 
 static uint16_t hitag_htu_candidate_residue(const uint8_t* data, size_t bits) {
+    if(bits == HITAG_HTU_RESPONSE_BITS - 1) {
+        uint8_t normalized[(HITAG_HTU_RESPONSE_BITS + 7) / 8] = {0};
+        for(size_t i = 0; i < bits; i++) {
+            hitag_htu_bit_put(normalized, i + 1, hitag_htu_bit_get(data, i));
+        }
+        return hitag_htu_codec_crc16(normalized, HITAG_HTU_RESPONSE_BITS, false);
+    }
     if(bits < HITAG_HTU_RESPONSE_BITS) return 0xFFFFU;
     return hitag_htu_codec_crc16(data, HITAG_HTU_RESPONSE_BITS, false);
 }
