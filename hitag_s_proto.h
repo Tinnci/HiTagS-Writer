@@ -251,8 +251,12 @@ typedef enum {
 
 typedef struct {
     bool detected;
+    bool had_activity;
+    bool crc_ok;
     uint8_t uid[HITAG_HTU_UID_SIZE];
     size_t response_bits;
+    size_t candidates_tried;
+    const char* method;
 } HitagHtuProbeInfo;
 
 typedef struct {

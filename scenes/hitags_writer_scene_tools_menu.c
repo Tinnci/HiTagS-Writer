@@ -7,6 +7,7 @@
 
 typedef enum {
     ToolsMenuIndexWipe,
+    ToolsMenuIndexHtuProbe,
     ToolsMenuIndexDebug,
     ToolsMenuIndexAbout,
 } ToolsMenuIndex;
@@ -22,6 +23,8 @@ void hitags_writer_scene_tools_menu_on_enter(void* context) {
 
     submenu_add_item(
         submenu, "Wipe Tag", ToolsMenuIndexWipe, hitags_writer_scene_tools_menu_callback, app);
+    submenu_add_item(
+        submenu, "HTU Probe", ToolsMenuIndexHtuProbe, hitags_writer_scene_tools_menu_callback, app);
     submenu_add_item(
         submenu, "Debug Read", ToolsMenuIndexDebug, hitags_writer_scene_tools_menu_callback, app);
     submenu_add_item(
@@ -40,6 +43,9 @@ bool hitags_writer_scene_tools_menu_on_event(void* context, SceneManagerEvent ev
         scene_manager_set_scene_state(app->scene_manager, HitagSSceneToolsMenu, event.event);
         if(event.event == ToolsMenuIndexWipe) {
             scene_manager_next_scene(app->scene_manager, HitagSSceneWipeTag);
+            consumed = true;
+        } else if(event.event == ToolsMenuIndexHtuProbe) {
+            scene_manager_next_scene(app->scene_manager, HitagSSceneHtuProbe);
             consumed = true;
         } else if(event.event == ToolsMenuIndexDebug) {
             scene_manager_next_scene(app->scene_manager, HitagSSceneDebugRead);

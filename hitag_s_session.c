@@ -49,8 +49,11 @@ static void trace_append(const char* fmt, ...) {
  * ============================================================ */
 
 /* Maximum edges we can capture (128 bits × 2 edges/bit + SOF + margin) */
-#define HITAG_S_MAX_EDGES              512
-#define HITAG_S_TRACE_MAX_EDGES_PER_RX 24
+#define HITAG_S_MAX_EDGES               512
+#define HITAG_S_TRACE_MAX_EDGES_PER_RX  24
+#define HITAG_HTU_RESPONSE_BITS         65
+#define HITAG_HTU_MAX_CANDIDATE_BITS    96
+#define HITAG_HTU_TRACE_CANDIDATE_LIMIT 24
 
 /* Edge capture context */
 typedef struct {
@@ -385,6 +388,273 @@ static size_t hitag_s_decode_mc4k(
     return data_bits;
 }
 
+static bool hitag_htu_bit_get(const uint8_t* data, size_t bit) {
+    return (data[bit / 8] >> (7 - (bit % 8))) & 1U;
+}
+
+static void hitag_htu_bit_put(uint8_t* data, size_t bit, bool value) {
+    if(value) {
+        data[bit / 8] |= 1U << (7 - (bit % 8));
+    }
+}
+
+static size_t hitag_htu_copy_window(
+    const uint8_t* src,
+    size_t src_bits,
+    size_t start_bit,
+    uint8_t* dst,
+    size_t max_bits,
+    bool invert) {
+    memset(dst, 0, (max_bits + 7) / 8);
+    if(start_bit >= src_bits) return 0;
+
+    size_t bits = src_bits - start_bit;
+    if(bits > max_bits) bits = max_bits;
+
+    for(size_t i = 0; i < bits; i++) {
+        bool bit = hitag_htu_bit_get(src, start_bit + i);
+        hitag_htu_bit_put(dst, i, invert ? !bit : bit);
+    }
+
+    return bits;
+}
+
+static uint16_t hitag_htu_candidate_residue(const uint8_t* data, size_t bits) {
+    if(bits < HITAG_HTU_RESPONSE_BITS) return 0xFFFFU;
+    return hitag_htu_codec_crc16(data, HITAG_HTU_RESPONSE_BITS, false);
+}
+
+static uint32_t hitag_htu_candidate_score(size_t bits, uint16_t residue) {
+    uint32_t distance = (bits > HITAG_HTU_RESPONSE_BITS) ?
+                            (uint32_t)(bits - HITAG_HTU_RESPONSE_BITS) :
+                            (uint32_t)(HITAG_HTU_RESPONSE_BITS - bits);
+    if(bits >= HITAG_HTU_RESPONSE_BITS && residue != 0) distance += 100;
+    return distance;
+}
+
+static void hitag_htu_probe_note_candidate(
+    HitagHtuProbeInfo* info,
+    const char* method,
+    size_t bits,
+    uint16_t residue) {
+    if(!info) return;
+
+    info->had_activity = true;
+    if(info->method == NULL ||
+       hitag_htu_candidate_score(bits, residue) <
+           hitag_htu_candidate_score(info->response_bits, info->crc_ok ? 0 : 0xFFFFU)) {
+        info->method = method;
+        info->response_bits = bits;
+        info->crc_ok = (residue == 0);
+    }
+}
+
+static bool hitag_htu_try_raw_candidate(
+    HitagHtuProbeInfo* info,
+    const char* method,
+    const uint8_t* raw,
+    size_t raw_bits,
+    uint8_t uid[HITAG_HTU_UID_SIZE]) {
+    uint8_t candidate[(HITAG_HTU_MAX_CANDIDATE_BITS + 7) / 8];
+
+    for(size_t sof = 0; sof <= 8; sof++) {
+        for(size_t inv = 0; inv < 2; inv++) {
+            bool invert = inv != 0;
+            size_t bits = hitag_htu_copy_window(
+                raw, raw_bits, sof, candidate, HITAG_HTU_MAX_CANDIDATE_BITS, invert);
+            if(bits == 0) continue;
+
+            uint16_t residue = hitag_htu_candidate_residue(candidate, bits);
+            if(info) info->candidates_tried++;
+
+            if(hitag_s_trace_is_active() &&
+               (!info || info->candidates_tried <= HITAG_HTU_TRACE_CANDIDATE_LIMIT ||
+                residue == 0)) {
+                trace_append(
+                    "  HTU candidate method=%s sof=%d invert=%d bits=%d crc16=%04X first=%02X %02X %02X\n",
+                    method,
+                    (int)sof,
+                    invert ? 1 : 0,
+                    (int)bits,
+                    residue,
+                    candidate[0],
+                    candidate[1],
+                    candidate[2]);
+            }
+
+            hitag_htu_probe_note_candidate(info, method, bits, residue);
+            if(hitag_htu_codec_decode_uid_response(candidate, bits, uid)) {
+                if(info) {
+                    info->detected = true;
+                    info->crc_ok = true;
+                    info->method = method;
+                    info->response_bits = bits;
+                }
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+typedef struct {
+    uint32_t high;
+    uint32_t period;
+} HitagHtuPulsePair;
+
+static size_t
+    hitag_htu_capture_pairs(const HitagSCapture* cap, HitagHtuPulsePair* pairs, size_t max_pairs) {
+    size_t count = 0;
+    uint32_t high = 0;
+
+    for(size_t i = 0; i < cap->edge_count; i++) {
+        if(cap->levels[i]) {
+            high = cap->durations[i];
+            continue;
+        }
+
+        uint32_t period = cap->durations[i];
+        if(high > 0 && period > high && count < max_pairs) {
+            pairs[count].high = high;
+            pairs[count].period = period;
+            count++;
+        }
+        high = 0;
+    }
+
+    return count;
+}
+
+static size_t hitag_htu_falling_intervals(
+    const HitagHtuPulsePair* pairs,
+    size_t pair_count,
+    uint32_t* intervals,
+    size_t max_intervals) {
+    size_t count = 0;
+
+    for(size_t i = 0; i + 1 < pair_count && count < max_intervals; i++) {
+        if(pairs[i].period <= pairs[i].high) continue;
+        intervals[count++] = (pairs[i].period - pairs[i].high) + pairs[i + 1].high;
+    }
+
+    return count;
+}
+
+static size_t hitag_htu_decode_pm3_mc(
+    const uint32_t* intervals,
+    size_t interval_count,
+    uint8_t* out_data,
+    size_t max_bits,
+    uint32_t two_half_us,
+    uint32_t three_half_us,
+    uint32_t four_half_us,
+    size_t start_skip,
+    bool seed_one) {
+    memset(out_data, 0, (max_bits + 7) / 8);
+    size_t bits = 0;
+    bool lastbit = true;
+    bool bSkip = false;
+
+    if(seed_one) {
+        hitag_htu_bit_put(out_data, bits++, true);
+        lastbit = true;
+        bSkip = true;
+    }
+
+    for(size_t i = start_skip; i < interval_count && bits < max_bits; i++) {
+        uint32_t rb = intervals[i];
+        if(rb < (two_half_us / 2)) continue;
+
+        if(rb >= four_half_us) {
+            hitag_htu_bit_put(out_data, bits++, false);
+            if(bits < max_bits) hitag_htu_bit_put(out_data, bits++, true);
+            lastbit = true;
+            bSkip = true;
+        } else if(rb >= three_half_us) {
+            lastbit = !lastbit;
+            hitag_htu_bit_put(out_data, bits++, lastbit);
+            bSkip = lastbit;
+        } else if(rb >= two_half_us) {
+            if(!bSkip) {
+                hitag_htu_bit_put(out_data, bits++, lastbit);
+            }
+            bSkip = !bSkip;
+        }
+    }
+
+    return bits;
+}
+
+static bool hitag_htu_decode_candidates(HitagHtuProbeInfo* info, uint8_t uid[HITAG_HTU_UID_SIZE]) {
+    static uint8_t raw[(HITAG_HTU_MAX_CANDIDATE_BITS + 7) / 8];
+    static HitagHtuPulsePair pairs[HITAG_S_MAX_EDGES / 2];
+    static uint32_t intervals[HITAG_S_MAX_EDGES / 2];
+
+    if(info) {
+        info->had_activity = hs_capture.edge_count > 0;
+        info->method = NULL;
+        info->response_bits = 0;
+        info->candidates_tried = 0;
+    }
+
+    const struct {
+        const char* method;
+        uint32_t threshold;
+    } half_methods[] = {
+        {"half-mc4k", HITAG_S_MC4K_THRESHOLD_US},
+        {"half-mc8k", 96},
+        {"half-mc2k", 384},
+        {"half-mc4k-low", 160},
+        {"half-mc4k-high", 224},
+    };
+
+    for(size_t i = 0; i < COUNT_OF(half_methods); i++) {
+        size_t bits = hitag_s_decode_mc4k(
+            &hs_capture, raw, HITAG_HTU_MAX_CANDIDATE_BITS, 0, half_methods[i].threshold);
+        if(hitag_htu_try_raw_candidate(info, half_methods[i].method, raw, bits, uid)) return true;
+    }
+
+    size_t pair_count = hitag_htu_capture_pairs(&hs_capture, pairs, COUNT_OF(pairs));
+    size_t interval_count =
+        hitag_htu_falling_intervals(pairs, pair_count, intervals, COUNT_OF(intervals));
+    const struct {
+        const char* method;
+        uint32_t two;
+        uint32_t three;
+        uint32_t four;
+    } pm3_methods[] = {
+        {"pm3-mc4k", 25U * HITAG_S_T0_US, 41U * HITAG_S_T0_US, 57U * HITAG_S_T0_US},
+        {"pm3-mc8k",
+         (25U * HITAG_S_T0_US) / 2,
+         (41U * HITAG_S_T0_US) / 2,
+         (57U * HITAG_S_T0_US) / 2},
+        {"pm3-mc2k", 25U * HITAG_S_T0_US * 2, 41U * HITAG_S_T0_US * 2, 57U * HITAG_S_T0_US * 2},
+    };
+
+    for(size_t i = 0; i < COUNT_OF(pm3_methods); i++) {
+        for(size_t start_skip = 0; start_skip <= 4; start_skip++) {
+            for(size_t seed = 0; seed < 2; seed++) {
+                size_t bits = hitag_htu_decode_pm3_mc(
+                    intervals,
+                    interval_count,
+                    raw,
+                    HITAG_HTU_MAX_CANDIDATE_BITS,
+                    pm3_methods[i].two,
+                    pm3_methods[i].three,
+                    pm3_methods[i].four,
+                    start_skip,
+                    seed != 0);
+                if(hitag_htu_try_raw_candidate(info, pm3_methods[i].method, raw, bits, uid)) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
 static const char* hitag_s_rx_mode_name(HitagSRxMode rx_mode) {
     switch(rx_mode) {
     case HitagSRxAC2K:
@@ -645,55 +915,64 @@ HitagSResult hitag_htu_probe_uid(HitagHtuProbeInfo* info) {
         (int)tx_bits,
         (unsigned long)hitag_htu_frame_duration_us(tx, tx_bits));
 
-    uint8_t rx[9] = {0};
-    size_t rx_bits = hitag_htu_send_receive(tx, tx_bits, rx, 65, HITAG_HTU_RX_TIMEOUT_UID, 0);
     uint8_t uid[HITAG_HTU_UID_SIZE] = {0};
-    size_t accepted_sof = 0;
-    bool ok = hitag_htu_codec_decode_uid_response(rx, rx_bits, uid);
+    uint8_t rx[(HITAG_HTU_MAX_CANDIDATE_BITS + 7) / 8] = {0};
+    UNUSED(hitag_htu_send_receive(
+        tx, tx_bits, rx, HITAG_HTU_MAX_CANDIDATE_BITS, HITAG_HTU_RX_TIMEOUT_UID, 0));
 
-    for(size_t sof = 1; !ok && sof <= 6; sof++) {
-        memset(rx, 0, sizeof(rx));
-        rx_bits = hitag_s_decode_mc4k(&hs_capture, rx, 65, sof, HITAG_S_MC4K_THRESHOLD_US);
-        ok = hitag_htu_codec_decode_uid_response(rx, rx_bits, uid);
-        if(ok) accepted_sof = sof;
-    }
+    bool ok = hitag_htu_decode_candidates(info, uid);
 
     if(!ok) {
-        if(rx_bits == 0) {
+        size_t best_bits = info ? info->response_bits : 0;
+        const char* best_method = (info && info->method) ? info->method : "none";
+        size_t candidates_tried = info ? info->candidates_tried : 0;
+        if(!info || !info->had_activity) {
             FURI_LOG_I(TAG, "HTU/8265 probe: no response");
             trace_append("  RESULT: no HTU READ UID response\n");
             return HitagSResultTimeout;
         }
-        FURI_LOG_W(TAG, "HTU/8265 probe: rejected response bits=%d crc16=bad", (int)rx_bits);
-        trace_append("  RESULT: HTU READ UID response rejected bits=%d crc16=bad\n", (int)rx_bits);
+        FURI_LOG_W(
+            TAG,
+            "HTU/8265 probe: rejected response best=%s bits=%d candidates=%d crc16=bad",
+            best_method,
+            (int)best_bits,
+            (int)candidates_tried);
+        trace_append(
+            "  RESULT: HTU READ UID response rejected best=%s bits=%d candidates=%d crc16=bad\n",
+            best_method,
+            (int)best_bits,
+            (int)candidates_tried);
         return HitagSResultCrcError;
     }
 
     if(info) {
         info->detected = true;
+        info->crc_ok = true;
         memcpy(info->uid, uid, HITAG_HTU_UID_SIZE);
-        info->response_bits = rx_bits;
     }
 
     FURI_LOG_W(
         TAG,
-        "HTU/8265 probe UID=%02X%02X%02X%02X%02X%02X (48-bit, CRC16 OK)",
-        uid[0],
-        uid[1],
-        uid[2],
-        uid[3],
-        uid[4],
-        uid[5]);
-    trace_append(
-        "  RESULT: HTU UID=%02X%02X%02X%02X%02X%02X bits=%d crc16=ok sof=%d\n",
+        "HTU/8265 probe UID=%02X%02X%02X%02X%02X%02X (48-bit, CRC16 OK, method=%s, candidates=%d)",
         uid[0],
         uid[1],
         uid[2],
         uid[3],
         uid[4],
         uid[5],
-        (int)rx_bits,
-        (int)accepted_sof);
+        (info && info->method) ? info->method : "?",
+        info ? (int)info->candidates_tried : 0);
+    trace_append(
+        "  RESULT: HTU UID=%02X%02X%02X%02X%02X%02X bits=%d crc16=ok method=%s candidates=%d\n",
+        uid[0],
+        uid[1],
+        uid[2],
+        uid[3],
+        uid[4],
+        uid[5],
+        info ? (int)info->response_bits : HITAG_HTU_RESPONSE_BITS,
+        (info && info->method) ? info->method : "?",
+        info ? (int)info->candidates_tried : 0);
     return HitagSResultOk;
 }
 

@@ -73,6 +73,8 @@ typedef enum {
     HitagSEventDebugOk,
     HitagSEventDebugPartial,
     HitagSEventDebugFailed,
+    HitagSEventHtuProbeOk,
+    HitagSEventHtuProbeFailed,
     HitagSEventLfReadSenseStart,
     HitagSEventLfReadSenseEnd,
     HitagSEventLfReadSenseCardStart,
@@ -103,6 +105,7 @@ typedef enum {
     HitagSWorkerCloneDump, /* Write loaded dump to tag (UID + config + data) */
     HitagSWorkerWipeTag, /* Wipe tag to factory defaults */
     HitagSWorkerDebugRead, /* Debug read: full read with RF trace capture */
+    HitagSWorkerHtuProbe, /* Hitag µ/8265 READ UID probe */
 } HitagSWorkerOp;
 
 /* --- Main App Structure --- */
@@ -164,6 +167,7 @@ struct HitagSApp {
     void* debug_trace; /**< FuriString* trace buffer from debug read (void* to avoid include) */
     HitagSMode debug_mode; /**< Protocol mode selected by Debug Read */
     const char* debug_stage; /**< Last Debug Read stage for partial UI */
+    HitagHtuProbeInfo htu_probe; /**< Last Hitag µ/8265 probe result */
 
     /* Text buffers */
     char text_store[HITAGS_WRITER_TEXT_STORE_SIZE + 1];

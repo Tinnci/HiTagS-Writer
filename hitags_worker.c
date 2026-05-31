@@ -49,6 +49,37 @@ static bool hitags_worker_probe_htu_once(const char* flow) {
     return true;
 }
 
+static void hitags_worker_htu_probe(HitagSApp* app) {
+    FURI_LOG_I(TAG, "HTU Probe: probing Hitag µ/8265 READ UID...");
+    memset(&app->htu_probe, 0, sizeof(app->htu_probe));
+    app->last_result = hitag_htu_probe_uid_sequence(&app->htu_probe);
+
+    if(app->last_result == HitagSResultOk && app->htu_probe.detected) {
+        FURI_LOG_W(
+            TAG,
+            "HTU Probe OK UID=%02X%02X%02X%02X%02X%02X method=%s bits=%d candidates=%d",
+            app->htu_probe.uid[0],
+            app->htu_probe.uid[1],
+            app->htu_probe.uid[2],
+            app->htu_probe.uid[3],
+            app->htu_probe.uid[4],
+            app->htu_probe.uid[5],
+            app->htu_probe.method ? app->htu_probe.method : "?",
+            (int)app->htu_probe.response_bits,
+            (int)app->htu_probe.candidates_tried);
+        view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventHtuProbeOk);
+    } else {
+        FURI_LOG_W(
+            TAG,
+            "HTU Probe failed result=%d best=%s bits=%d candidates=%d",
+            (int)app->last_result,
+            app->htu_probe.method ? app->htu_probe.method : "none",
+            (int)app->htu_probe.response_bits,
+            (int)app->htu_probe.candidates_tried);
+        view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventHtuProbeFailed);
+    }
+}
+
 static void hitags_worker_write_em4100(HitagSApp* app) {
     Em4100HitagData hitag_data;
     em4100_prepare_hitag_data(app->em4100_id, &hitag_data);
@@ -366,6 +397,9 @@ int32_t hitags_writer_worker_thread(void* context) {
         break;
     case HitagSWorkerDebugRead:
         hitags_worker_debug_read(app);
+        break;
+    case HitagSWorkerHtuProbe:
+        hitags_worker_htu_probe(app);
         break;
     case HitagSWorkerIdle:
         break;

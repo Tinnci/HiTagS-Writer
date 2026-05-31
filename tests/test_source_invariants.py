@@ -390,6 +390,46 @@ class SourceInvariantTests(unittest.TestCase):
         self.assertIn("HTU/8265 probe: no response", probe)
         self.assertIn("HTU/8265 probe: rejected response", probe)
 
+    def test_htu_probe_uses_multi_candidate_decoder(self):
+        source = (ROOT / "hitag_s_session.c").read_text()
+        probe = source.split("HitagSResult hitag_htu_probe_uid", 1)[1].split(
+            "HitagSResult hitag_htu_probe_uid_sequence", 1
+        )[0]
+
+        self.assertIn("hitag_htu_decode_candidates", source)
+        self.assertIn('"half-mc4k"', source)
+        self.assertIn('"half-mc8k"', source)
+        self.assertIn('"half-mc2k"', source)
+        self.assertIn('"pm3-mc4k"', source)
+        self.assertIn("sof <= 8", source)
+        self.assertIn("invert", source)
+        self.assertIn("HTU candidate", source)
+        self.assertIn("candidates_tried", probe)
+
+    def test_tools_menu_has_dedicated_htu_probe_entry(self):
+        config = (ROOT / "scenes/hitags_writer_scene_config.h").read_text()
+        tools_menu = (ROOT / "scenes/hitags_writer_scene_tools_menu.c").read_text()
+        scene_path = ROOT / "scenes/hitags_writer_scene_htu_probe.c"
+
+        self.assertTrue(scene_path.exists())
+        self.assertIn("ADD_SCENE(hitags_writer, htu_probe, HtuProbe)", config)
+        self.assertIn('"HTU Probe"', tools_menu)
+        self.assertIn("ToolsMenuIndexHtuProbe", tools_menu)
+        self.assertIn("HitagSSceneHtuProbe", tools_menu)
+
+    def test_worker_has_dedicated_htu_probe_operation(self):
+        header = (ROOT / "hitags_writer_i.h").read_text()
+        worker = (ROOT / "hitags_worker.c").read_text()
+
+        self.assertIn("HitagSEventHtuProbeOk", header)
+        self.assertIn("HitagSEventHtuProbeFailed", header)
+        self.assertIn("HitagSWorkerHtuProbe", header)
+        self.assertIn("HitagHtuProbeInfo htu_probe", header)
+        self.assertIn("hitags_worker_htu_probe", worker)
+        self.assertIn("HitagSWorkerHtuProbe", worker)
+        self.assertIn("HitagSEventHtuProbeOk", worker)
+        self.assertIn("HitagSEventHtuProbeFailed", worker)
+
     def test_htu_transport_sends_eof_before_rx_capture(self):
         source = (ROOT / "hitag_s_transport.c").read_text()
         send = source.split("void hitag_s_send_htu_frame_with_early_rx", 1)[1].split(

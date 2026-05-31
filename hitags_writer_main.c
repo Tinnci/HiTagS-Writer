@@ -60,6 +60,7 @@ static HitagSApp* hitags_writer_alloc(void) {
     app->debug_trace = NULL;
     app->debug_mode = HitagSModeStd;
     app->debug_stage = "-";
+    memset(&app->htu_probe, 0, sizeof(app->htu_probe));
     memset(app->uid_input, 0, sizeof(app->uid_input));
     memset(app->dump_pages, 0, sizeof(app->dump_pages));
     memset(app->dump_valid, 0, sizeof(app->dump_valid));
