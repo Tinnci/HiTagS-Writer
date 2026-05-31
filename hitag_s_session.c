@@ -420,6 +420,9 @@ static size_t hitag_htu_copy_window(
 }
 
 static uint16_t hitag_htu_candidate_residue(const uint8_t* data, size_t bits) {
+    uint8_t uid[HITAG_HTU_UID_SIZE] = {0};
+    if(hitag_htu_codec_decode_uid_response(data, bits, uid)) return 0;
+
     if(bits == HITAG_HTU_RESPONSE_BITS - 1) {
         uint8_t normalized[(HITAG_HTU_RESPONSE_BITS + 7) / 8] = {0};
         for(size_t i = 0; i < bits; i++) {
@@ -453,6 +456,7 @@ static void hitag_htu_probe_note_candidate(
         info->method = method;
         info->response_bits = bits;
         info->crc_ok = (residue == 0);
+        info->best_residue = residue;
     }
 }
 
@@ -490,6 +494,11 @@ static bool hitag_htu_try_raw_candidate(
             }
 
             hitag_htu_probe_note_candidate(info, method, bits, residue);
+            if(info && info->method == method && info->response_bits == bits) {
+                info->best_prefix[0] = candidate[0];
+                info->best_prefix[1] = candidate[1];
+                info->best_prefix[2] = candidate[2];
+            }
             if(hitag_htu_codec_decode_uid_response(candidate, bits, uid)) {
                 if(info) {
                     info->detected = true;
@@ -940,15 +949,23 @@ HitagSResult hitag_htu_probe_uid(HitagHtuProbeInfo* info) {
         }
         FURI_LOG_W(
             TAG,
-            "HTU/8265 probe: rejected response best=%s bits=%d candidates=%d crc16=bad",
+            "HTU/8265 probe: rejected response best=%s bits=%d candidates=%d crc16=%04X first=%02X %02X %02X",
             best_method,
             (int)best_bits,
-            (int)candidates_tried);
+            (int)candidates_tried,
+            info ? info->best_residue : 0xFFFFU,
+            info ? info->best_prefix[0] : 0,
+            info ? info->best_prefix[1] : 0,
+            info ? info->best_prefix[2] : 0);
         trace_append(
-            "  RESULT: HTU READ UID response rejected best=%s bits=%d candidates=%d crc16=bad\n",
+            "  RESULT: HTU READ UID response rejected best=%s bits=%d candidates=%d crc16=%04X first=%02X %02X %02X\n",
             best_method,
             (int)best_bits,
-            (int)candidates_tried);
+            (int)candidates_tried,
+            info ? info->best_residue : 0xFFFFU,
+            info ? info->best_prefix[0] : 0,
+            info ? info->best_prefix[1] : 0,
+            info ? info->best_prefix[2] : 0);
         return HitagSResultCrcError;
     }
 

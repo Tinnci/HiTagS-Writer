@@ -254,8 +254,10 @@ typedef struct {
     bool had_activity;
     bool crc_ok;
     uint8_t uid[HITAG_HTU_UID_SIZE];
+    uint8_t best_prefix[3];
     size_t response_bits;
     size_t candidates_tried;
+    uint16_t best_residue;
     const char* method;
 } HitagHtuProbeInfo;
 

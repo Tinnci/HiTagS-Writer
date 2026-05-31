@@ -71,11 +71,15 @@ static void hitags_worker_htu_probe(HitagSApp* app) {
     } else {
         FURI_LOG_W(
             TAG,
-            "HTU Probe failed result=%d best=%s bits=%d candidates=%d",
+            "HTU Probe failed result=%d best=%s bits=%d candidates=%d crc16=%04X first=%02X %02X %02X",
             (int)app->last_result,
             app->htu_probe.method ? app->htu_probe.method : "none",
             (int)app->htu_probe.response_bits,
-            (int)app->htu_probe.candidates_tried);
+            (int)app->htu_probe.candidates_tried,
+            app->htu_probe.best_residue,
+            app->htu_probe.best_prefix[0],
+            app->htu_probe.best_prefix[1],
+            app->htu_probe.best_prefix[2]);
         view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventHtuProbeFailed);
     }
 }

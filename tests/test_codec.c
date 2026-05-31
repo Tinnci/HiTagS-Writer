@@ -148,6 +148,26 @@ static void test_htu_uid_response_accepts_8265_missing_error_flag_variant(void) 
     }
 }
 
+static void test_htu_uid_response_accepts_64_bit_uid_crc_variant(void) {
+    const uint8_t expected_uid[HITAG_HTU_UID_SIZE] = {0x00, 0x00, 0x00, 0x20, 0x4C, 0x00};
+    uint8_t response[8] = {0};
+    size_t bits = 0;
+
+    for(size_t i = 0; i < HITAG_HTU_UID_SIZE; i++) {
+        hitag_s_codec_pack_bits(response, &bits, expected_uid[i], 8);
+    }
+    uint16_t crc = hitag_htu_codec_crc16(response, bits, true);
+    hitag_htu_codec_pack_bits_lsb(response, &bits, crc, 16);
+    assert(bits == 64);
+
+    uint8_t decoded_uid[HITAG_HTU_UID_SIZE] = {0};
+    assert(hitag_htu_codec_decode_uid_response(response, bits, decoded_uid));
+
+    for(size_t i = 0; i < HITAG_HTU_UID_SIZE; i++) {
+        assert(decoded_uid[i] == expected_uid[i]);
+    }
+}
+
 int main(void) {
     test_ac2k_uid_quality_rejects_long_gap_noise();
     test_valid_uid_capture_requires_32_bits_and_clean_quality();
@@ -156,5 +176,6 @@ int main(void) {
     test_htu_read_uid_frame_matches_proxmark_model();
     test_htu_uid_response_requires_crc16_residue_and_extracts_48_bit_uid();
     test_htu_uid_response_accepts_8265_missing_error_flag_variant();
+    test_htu_uid_response_accepts_64_bit_uid_crc_variant();
     return 0;
 }

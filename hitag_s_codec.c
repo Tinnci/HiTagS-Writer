@@ -4,6 +4,7 @@
  */
 
 #include "hitag_s_codec.h"
+#include <string.h>
 
 #define HITAG_S_AC2K_GLITCH_US      80U
 #define HITAG_S_CODEC_T0_US         8U
@@ -115,39 +116,73 @@ static void hitag_s_codec_put_bit(uint8_t* data, size_t bit_pos, bool bit) {
     }
 }
 
+static void hitag_htu_codec_copy_bits(
+    uint8_t* dst,
+    size_t dst_offset,
+    const uint8_t* src,
+    size_t src_offset,
+    size_t bits) {
+    for(size_t i = 0; i < bits; i++) {
+        hitag_s_codec_put_bit(dst, dst_offset + i, hitag_s_codec_get_bit(src, src_offset + i));
+    }
+}
+
+static void hitag_htu_codec_extract_uid(
+    const uint8_t* rx,
+    size_t uid_offset,
+    uint8_t uid[HITAG_HTU_UID_SIZE]) {
+    for(size_t i = 0; i < HITAG_HTU_UID_SIZE; i++) {
+        uint8_t b = 0;
+        for(size_t j = 0; j < 8; j++) {
+            if(hitag_s_codec_get_bit(rx, uid_offset + (i * 8) + j)) {
+                b |= (uint8_t)(1U << (7 - j));
+            }
+        }
+        uid[i] = b;
+    }
+}
+
+static uint16_t hitag_htu_codec_get_lsb_value(const uint8_t* rx, size_t offset, size_t bits) {
+    uint16_t value = 0;
+    for(size_t i = 0; i < bits; i++) {
+        if(hitag_s_codec_get_bit(rx, offset + i)) {
+            value |= (uint16_t)(1U << i);
+        }
+    }
+    return value;
+}
+
 bool hitag_htu_codec_decode_uid_response(
     const uint8_t* rx,
     size_t rx_bits,
     uint8_t uid[HITAG_HTU_UID_SIZE]) {
     const size_t expected_bits = 1 + (HITAG_HTU_UID_SIZE * 8) + 16;
     uint8_t normalized[9] = {0};
-    const uint8_t* checked = rx;
-    size_t uid_offset = 1;
 
     if(rx_bits >= expected_bits) {
         if(hitag_htu_codec_crc16(rx, expected_bits, false) != 0) return false;
+        hitag_htu_codec_extract_uid(rx, 1, uid);
+        return true;
     } else if(rx_bits == expected_bits - 1) {
         /* Some 8265-compatible tags/captures lose the leading error flag bit.
          * Reconstruct the standard response as error_flag=0 + 48-bit UID + CRC16. */
-        for(size_t i = 0; i < rx_bits; i++) {
-            hitag_s_codec_put_bit(normalized, i + 1, hitag_s_codec_get_bit(rx, i));
+        memset(normalized, 0, sizeof(normalized));
+        hitag_htu_codec_copy_bits(normalized, 1, rx, 0, rx_bits);
+        if(hitag_htu_codec_crc16(normalized, expected_bits, false) == 0) {
+            hitag_htu_codec_extract_uid(normalized, 1, uid);
+            return true;
         }
-        if(hitag_htu_codec_crc16(normalized, expected_bits, false) != 0) return false;
-        checked = normalized;
-    } else {
-        return false;
+
+        /* 8265/HTU captures may also omit the error flag entirely: 48-bit UID + CRC16. */
+        uint16_t no_flag_crc = hitag_htu_codec_crc16(rx, HITAG_HTU_UID_SIZE * 8, true);
+        uint16_t no_flag_rx_crc = hitag_htu_codec_get_lsb_value(rx, HITAG_HTU_UID_SIZE * 8, 16);
+        if(no_flag_crc == no_flag_rx_crc) {
+            hitag_htu_codec_extract_uid(rx, 0, uid);
+            return true;
+        }
     }
 
-    for(size_t i = 0; i < HITAG_HTU_UID_SIZE; i++) {
-        uint8_t b = 0;
-        for(size_t j = 0; j < 8; j++) {
-            if(hitag_s_codec_get_bit(checked, uid_offset + (i * 8) + j)) {
-                b |= (uint8_t)(1U << (7 - j));
-            }
-        }
-        uid[i] = b;
-    }
-    return true;
+    return false;
 }
 
 uint8_t hitag_s_codec_build_select_frame(uint8_t* buf, size_t* bits, uint32_t uid) {
