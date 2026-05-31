@@ -12,9 +12,10 @@
 #include <furi.h>
 #include <furi_hal.h>
 
-#define TAG                           "HitagS"
-#define HITAG_S_START01_CONSENSUS_MIN 8
-#define HITAG_S_START01_CONSENSUS_MAX 4
+#define TAG                               "HitagS"
+#define HITAG_S_START01_CONSENSUS_MIN     8
+#define HITAG_S_START01_CONSENSUS_MAX     4
+#define HITAG_S_UID_MODE_CONFIRMATION_MIN 2
 
 /** Append formatted text to trace buffer (if tracing is active) */
 static void trace_append(const char* fmt, ...) {
@@ -1042,6 +1043,8 @@ static HitagSResult hitag_s_uid_request_mode(size_t mode_idx, uint32_t* uid) {
     uint8_t cmd[1] = {0};
     size_t bit_pos = 0;
     pack_bits(cmd, &bit_pos, mode->cmd_5bit, 5);
+    uint32_t confirmed_uid = 0;
+    size_t confirmed_votes = 0;
 
     trace_append(
         "PROTO_MODE: %s cmd=%02X uid_rx=%s data_rx=%s uid_sof=%d data_sof=%d\n",
@@ -1084,17 +1087,41 @@ static HitagSResult hitag_s_uid_request_mode(size_t mode_idx, uint32_t* uid) {
             continue;
         }
 
-        *uid = candidate;
-        active_mode_idx = mode_idx;
-        active_uid_requires_select_verification = false;
-        trace_append(
-            "  RESULT: OK, UID=%08lX (mode=%s, %s)\n",
-            (unsigned long)*uid,
-            mode->name,
-            hitag_s_rx_mode_name(mode->uid_rx_mode));
-        return HitagSResultOk;
+        if(confirmed_votes == 0 || confirmed_uid != candidate) {
+            confirmed_uid = candidate;
+            confirmed_votes = 1;
+            trace_append(
+                "  %s: UID candidate %08lX needs repeat confirmation\n",
+                mode->name,
+                (unsigned long)candidate);
+            furi_delay_us(HITAG_S_T_WAIT_SC_US);
+            continue;
+        }
+
+        confirmed_votes++;
+        if(confirmed_votes >= HITAG_S_UID_MODE_CONFIRMATION_MIN) {
+            *uid = confirmed_uid;
+            active_mode_idx = mode_idx;
+            active_uid_requires_select_verification = false;
+            trace_append(
+                "  RESULT: OK, UID=%08lX (mode=%s, %s)\n",
+                (unsigned long)*uid,
+                mode->name,
+                hitag_s_rx_mode_name(mode->uid_rx_mode));
+            return HitagSResultOk;
+        }
+
+        furi_delay_us(HITAG_S_T_WAIT_SC_US);
+        continue;
     }
 
+    if(confirmed_votes > 0) {
+        trace_append(
+            "  %s: rejected unstable UID candidate %08lX (votes=%d)\n",
+            mode->name,
+            (unsigned long)confirmed_uid,
+            (int)confirmed_votes);
+    }
     trace_append("  %s: no valid UID response\n", mode->name);
     return HitagSResultTimeout;
 }

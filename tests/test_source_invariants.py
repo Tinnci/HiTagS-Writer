@@ -291,6 +291,18 @@ class SourceInvariantTests(unittest.TestCase):
         self.assertIn("session->selected = true", open_session)
         self.assertIn("field reset before next protocol mode", open_session)
 
+    def test_open_session_requires_repeated_uid_before_select(self):
+        source = (ROOT / "hitag_s_session.c").read_text()
+        mode_probe = source.split("static HitagSResult hitag_s_uid_request_mode", 1)[1].split(
+            "HitagSResult hitag_s_open_session", 1
+        )[0]
+
+        self.assertIn("HITAG_S_UID_MODE_CONFIRMATION_MIN", source)
+        self.assertIn("confirmed_uid", mode_probe)
+        self.assertIn("confirmed_votes", mode_probe)
+        self.assertIn("rejected unstable UID candidate", mode_probe)
+        self.assertLess(mode_probe.index("confirmed_votes >="), mode_probe.index("RESULT: OK"))
+
     def test_debug_read_ex_reports_stage_and_page_status(self):
         source = (ROOT / "hitag_s_8268.c").read_text()
         debug_read_ex = source.split("HitagSResult hitag_s_debug_read_sequence_ex", 1)[1]
