@@ -839,6 +839,549 @@ static size_t hitag_s_send_receive(
     return bits;
 }
 
+static uint32_t hitag_s_capture_first_signal_us(const HitagSCapture* cap) {
+    uint32_t elapsed_us = 0;
+    for(size_t i = 0; i < cap->edge_count; i++) {
+        elapsed_us += cap->durations[i];
+        if(cap->durations[i] >= HITAG_S_AC2K_GLITCH_US) {
+            return elapsed_us;
+        }
+    }
+    return 0;
+}
+
+HitagSResult hitag_s_capture_passive_ttf(uint32_t listen_us, HitagSPassiveTtfReport* report) {
+    if(report) {
+        memset(report, 0, sizeof(HitagSPassiveTtfReport));
+    }
+
+    hitag_s_capture_start(NULL);
+
+    uint32_t elapsed_us = 0;
+    size_t last_edge_count = 0;
+    while(elapsed_us < listen_us) {
+        const uint32_t step_us = 100;
+        furi_delay_us(step_us);
+        elapsed_us += step_us;
+
+        size_t edge_count = hs_capture.edge_count;
+        if(edge_count != last_edge_count) {
+            last_edge_count = edge_count;
+        }
+    }
+
+    furi_hal_rfid_tim_read_capture_stop();
+
+    bool had_activity = hs_capture.edge_count > 2;
+    uint32_t first_edge_us = hitag_s_capture_first_signal_us(&hs_capture);
+    if(report) {
+        report->had_activity = had_activity;
+        report->first_edge_us = first_edge_us;
+        report->elapsed_us = elapsed_us;
+        report->edge_count = hs_capture.edge_count;
+        report->overflow = hs_capture.overflow;
+    }
+
+    trace_append(
+        "  PASSIVE_TTF: listen_us=%lu first_edge_us=%lu edges=%d%s\n",
+        (unsigned long)listen_us,
+        (unsigned long)first_edge_us,
+        (int)hs_capture.edge_count,
+        hs_capture.overflow ? " overflow" : "");
+
+    if(hitag_s_trace_is_active() && hs_capture.edge_count > 0) {
+        trace_append("  EDGES:");
+        size_t trace_edge_count = hs_capture.edge_count < HITAG_S_TRACE_MAX_EDGES_PER_RX ?
+                                      hs_capture.edge_count :
+                                      HITAG_S_TRACE_MAX_EDGES_PER_RX;
+        for(size_t i = 0; i < trace_edge_count; i++) {
+            trace_append(
+                " %s:%lu",
+                hs_capture.levels[i] ? "H" : "L",
+                (unsigned long)hs_capture.durations[i]);
+        }
+        if(trace_edge_count < hs_capture.edge_count) {
+            trace_append(
+                " ... truncated_edges=%d", (int)(hs_capture.edge_count - trace_edge_count));
+        }
+        trace_append("\n");
+    }
+
+    return had_activity ? HitagSResultOk : HitagSResultTimeout;
+}
+
+typedef void (*HitagSLfDiagTx)(void* context);
+
+typedef struct {
+    size_t bits;
+    size_t edges;
+    uint8_t first[8];
+    bool got_32;
+    uint32_t value32;
+    const char* method;
+} HitagSLfDiagDecode;
+
+static uint32_t hitag_s_bits_to_u32(const uint8_t* data, size_t bits) {
+    uint32_t value = 0;
+    size_t use_bits = bits < 32 ? bits : 32;
+    for(size_t i = 0; i < use_bits; i++) {
+        value <<= 1;
+        value |= (data[i / 8] >> (7 - (i % 8))) & 1U;
+    }
+    return value;
+}
+
+static bool hitag_s_lf_diag_is_ttf_broadcast(const HitagSLfDiagDecode* decode) {
+    return decode->bits >= 32 && hitag_htu_codec_is_ttf_broadcast_candidate(
+                                     decode->first, decode->bits < 64 ? decode->bits : 64);
+}
+
+static bool
+    hitag_s_lf_decode_try(HitagSRxMode rx_mode, size_t sof_bits, uint8_t* out, size_t* bits_out) {
+    size_t bits;
+    if(rx_mode == HitagSRxAC2K || rx_mode == HitagSRxAC4K) {
+        uint32_t thresh_23 = (rx_mode == HitagSRxAC4K) ? 160 : HITAG_S_AC2K_THRESH_23_US;
+        uint32_t thresh_34 = (rx_mode == HitagSRxAC4K) ? 224 : HITAG_S_AC2K_THRESH_34_US;
+        uint32_t glitch = (rx_mode == HitagSRxAC4K) ? 40 : HITAG_S_AC2K_GLITCH_US;
+        bits = hitag_s_decode_ac2k(
+            &hs_capture,
+            out,
+            64,
+            sof_bits,
+            thresh_23,
+            thresh_34,
+            glitch,
+            hitag_s_rx_mode_name(rx_mode));
+    } else {
+        bits =
+            hitag_s_decode_mc4k(&hs_capture, out, 64, sof_bits, hitag_s_mc_threshold_us(rx_mode));
+    }
+    *bits_out = bits;
+    return bits > 0;
+}
+
+static HitagSResult hitag_s_lf_diag_tx_capture(
+    const char* label,
+    HitagSLfDiagTx tx,
+    void* tx_context,
+    uint32_t rx_timeout_us,
+    HitagSLfDiagDecode* best) {
+    memset(best, 0, sizeof(HitagSLfDiagDecode));
+
+    FURI_CRITICAL_ENTER();
+    tx(tx_context);
+    hitag_s_capture_start(NULL);
+    FURI_CRITICAL_EXIT();
+
+    uint32_t elapsed_us = 0;
+    uint32_t idle_us = 0;
+    size_t last_edge_count = 0;
+    while(elapsed_us < rx_timeout_us) {
+        const uint32_t step_us = 100;
+        furi_delay_us(step_us);
+        elapsed_us += step_us;
+
+        size_t edge_count = hs_capture.edge_count;
+        if(edge_count != last_edge_count) {
+            last_edge_count = edge_count;
+            idle_us = 0;
+        } else if(edge_count > 1) {
+            idle_us += step_us;
+            if(idle_us >= HITAG_S_T_RX_IDLE_US) break;
+        }
+    }
+
+    furi_hal_rfid_tim_read_capture_stop();
+
+    trace_append(
+        "  %s RX_META: elapsed_us=%lu idle_us=%lu timeout_us=%lu edges=%d%s\n",
+        label,
+        (unsigned long)elapsed_us,
+        (unsigned long)idle_us,
+        (unsigned long)rx_timeout_us,
+        (int)hs_capture.edge_count,
+        hs_capture.overflow ? " overflow" : "");
+
+    if(hitag_s_trace_is_active() && hs_capture.edge_count > 0) {
+        trace_append("  %s EDGES:", label);
+        size_t trace_edge_count = hs_capture.edge_count < HITAG_S_TRACE_MAX_EDGES_PER_RX ?
+                                      hs_capture.edge_count :
+                                      HITAG_S_TRACE_MAX_EDGES_PER_RX;
+        for(size_t i = 0; i < trace_edge_count; i++) {
+            trace_append(
+                " %s:%lu",
+                hs_capture.levels[i] ? "H" : "L",
+                (unsigned long)hs_capture.durations[i]);
+        }
+        if(trace_edge_count < hs_capture.edge_count) {
+            trace_append(
+                " ... truncated_edges=%d", (int)(hs_capture.edge_count - trace_edge_count));
+        }
+        trace_append("\n");
+    }
+
+    static const struct {
+        HitagSRxMode mode;
+        size_t sof;
+    } candidates[] = {
+        {HitagSRxMC4K, 0},
+        {HitagSRxMC4K, 1},
+        {HitagSRxMC2K, 0},
+        {HitagSRxMC8K, 0},
+        {HitagSRxAC2K, 0},
+        {HitagSRxAC4K, 0},
+    };
+
+    uint8_t decoded[8];
+    for(size_t i = 0; i < COUNT_OF(candidates); i++) {
+        size_t bits = 0;
+        memset(decoded, 0, sizeof(decoded));
+        if(!hitag_s_lf_decode_try(candidates[i].mode, candidates[i].sof, decoded, &bits)) {
+            continue;
+        }
+
+        trace_append(
+            "  %s candidate mode=%s sof=%d bits=%d first=%02X %02X %02X %02X\n",
+            label,
+            hitag_s_rx_mode_name(candidates[i].mode),
+            (int)candidates[i].sof,
+            (int)bits,
+            decoded[0],
+            decoded[1],
+            decoded[2],
+            decoded[3]);
+
+        if(bits > best->bits) {
+            best->bits = bits;
+            best->edges = hs_capture.edge_count;
+            memcpy(best->first, decoded, sizeof(best->first));
+            best->method = hitag_s_rx_mode_name(candidates[i].mode);
+            if(bits >= 32) {
+                best->got_32 = true;
+                best->value32 = hitag_s_bits_to_u32(decoded, bits);
+            }
+        }
+    }
+
+    return best->bits > 0 ? HitagSResultOk : HitagSResultTimeout;
+}
+
+#define LF_DIAG_T0_US              8
+#define T5577_DETECT_WAIT_CYCLES   400
+#define T5577_DETECT_START_GAP     30
+#define T5577_DETECT_WRITE_GAP     18
+#define T5577_DETECT_DATA_0        24
+#define T5577_DETECT_DATA_1        56
+#define T5577_DETECT_OPCODE_PAGE_0 0b10
+#define T5577_DETECT_OPCODE_RESET  0b00
+
+static void hitag_s_t5577_diag_gap(uint32_t cycles) {
+    furi_hal_rfid_tim_read_pause();
+    furi_delay_us(cycles * LF_DIAG_T0_US);
+    furi_hal_rfid_tim_read_continue();
+}
+
+static void hitag_s_t5577_diag_bit(bool value) {
+    furi_delay_us((value ? T5577_DETECT_DATA_1 : T5577_DETECT_DATA_0) * LF_DIAG_T0_US);
+    hitag_s_t5577_diag_gap(T5577_DETECT_WRITE_GAP);
+}
+
+static void hitag_s_t5577_diag_opcode(uint8_t value) {
+    hitag_s_t5577_diag_bit((value >> 1) & 1U);
+    hitag_s_t5577_diag_bit(value & 1U);
+}
+
+static void hitag_s_t5577_diag_reset_tx(void* context) {
+    UNUSED(context);
+    hitag_s_t5577_diag_gap(T5577_DETECT_START_GAP);
+    hitag_s_t5577_diag_opcode(T5577_DETECT_OPCODE_RESET);
+}
+
+static void hitag_s_t5577_diag_read_block0_tx(void* context) {
+    UNUSED(context);
+    furi_delay_us(T5577_DETECT_WAIT_CYCLES * LF_DIAG_T0_US);
+    hitag_s_t5577_diag_gap(T5577_DETECT_START_GAP);
+    hitag_s_t5577_diag_opcode(T5577_DETECT_OPCODE_PAGE_0);
+    hitag_s_t5577_diag_bit(false); /* direct-access read, no lock/data payload */
+    hitag_s_t5577_diag_bit(false);
+    hitag_s_t5577_diag_bit(false);
+    hitag_s_t5577_diag_bit(false);
+}
+
+static const char* hitag_s_t5577_mod_guess(uint32_t block0) {
+    switch(block0 & 0x00018000UL) {
+    case 0x00000000UL:
+        return "direct";
+    case 0x00008000UL:
+        return "manchester";
+    case 0x00010000UL:
+        return "biphase";
+    case 0x00018000UL:
+        return "diphase";
+    default:
+        return "?";
+    }
+}
+
+static const char* hitag_s_t5577_bitrate_guess(uint32_t block0) {
+    switch(block0 & 0x001C0000UL) {
+    case 0x00000000UL:
+        return "RF/8";
+    case 0x00040000UL:
+        return "RF/16";
+    case 0x00080000UL:
+        return "RF/32";
+    case 0x000C0000UL:
+        return "RF/40";
+    case 0x00100000UL:
+        return "RF/50";
+    case 0x00140000UL:
+        return "RF/64";
+    case 0x00180000UL:
+        return "RF/100";
+    case 0x001C0000UL:
+        return "RF/128";
+    default:
+        return "?";
+    }
+}
+
+HitagSResult hitag_s_t5577_detect_diagnostic(void) {
+    trace_append("\n--- T5577_DETECT ---\n");
+    FURI_LOG_I(TAG, "T5577 detect: reset/direct access/read block 0");
+
+    hitag_s_field_reset_hard(20);
+    hitag_s_field_on_no_wait();
+
+    HitagSLfDiagDecode reset_decode;
+    (void)hitag_s_lf_diag_tx_capture(
+        "T5577_RESET", hitag_s_t5577_diag_reset_tx, NULL, 20000, &reset_decode);
+
+    HitagSLfDiagDecode read_decode;
+    trace_append("T5577_BLOCK0: direct-access read block 0\n");
+    HitagSResult result = hitag_s_lf_diag_tx_capture(
+        "T5577_BLOCK0", hitag_s_t5577_diag_read_block0_tx, NULL, 40000, &read_decode);
+
+    bool ttf_broadcast = hitag_s_lf_diag_is_ttf_broadcast(&read_decode);
+    if(read_decode.got_32 && !hitag_s_lf_diag_is_ttf_broadcast(&read_decode)) {
+        trace_append(
+            "T5577_DETECT: response=yes bits=%d edges=%d block0=%08lX mod_guess=%s bitrate_guess=%s method=%s\n",
+            (int)read_decode.bits,
+            (int)read_decode.edges,
+            (unsigned long)read_decode.value32,
+            hitag_s_t5577_mod_guess(read_decode.value32),
+            hitag_s_t5577_bitrate_guess(read_decode.value32),
+            read_decode.method ? read_decode.method : "?");
+        FURI_LOG_W(
+            TAG,
+            "T5577_DETECT: response=yes bits=%d edges=%d block0=%08lX mod_guess=%s bitrate_guess=%s",
+            (int)read_decode.bits,
+            (int)read_decode.edges,
+            (unsigned long)read_decode.value32,
+            hitag_s_t5577_mod_guess(read_decode.value32),
+            hitag_s_t5577_bitrate_guess(read_decode.value32));
+        result = HitagSResultOk;
+    } else {
+        const char* response_label =
+            ttf_broadcast ? "response=ttf_broadcast" :
+                            (read_decode.bits > 0 ? "response=partial" : "response=no");
+        trace_append(
+            "T5577_DETECT: %s bits=%d edges=%d block0=none mod_guess=unknown bitrate_guess=unknown first=%02X %02X %02X %02X\n",
+            response_label,
+            (int)read_decode.bits,
+            (int)read_decode.edges,
+            read_decode.first[0],
+            read_decode.first[1],
+            read_decode.first[2],
+            read_decode.first[3]);
+        FURI_LOG_W(
+            TAG,
+            "T5577_DETECT: %s bits=%d edges=%d block0=none first=%02X %02X %02X %02X",
+            response_label,
+            (int)read_decode.bits,
+            (int)read_decode.edges,
+            read_decode.first[0],
+            read_decode.first[1],
+            read_decode.first[2],
+            read_decode.first[3]);
+        result = HitagSResultTimeout;
+    }
+
+    hitag_s_field_off();
+    return result;
+}
+
+#define EM4X05_DIAG_TIMING_1       32
+#define EM4X05_DIAG_TIMING_0_OFF   23
+#define EM4X05_DIAG_TIMING_0_ON    18
+#define EM4X05_DIAG_FIELD_STOP_OFF 55
+#define EM4X05_DIAG_FIELD_STOP_ON  18
+#define EM4X05_DIAG_OPCODE_LOGIN   0b001
+#define EM4X05_DIAG_OPCODE_READ    0b100
+
+typedef struct {
+    uint8_t opcode;
+    uint8_t address;
+    bool send_password;
+    uint32_t password;
+} HitagSEm4x05Tx;
+
+static void hitag_s_em4x05_diag_bit(bool value) {
+    if(value) {
+        furi_delay_us(EM4X05_DIAG_TIMING_1 * LF_DIAG_T0_US);
+    } else {
+        furi_hal_rfid_tim_read_pause();
+        furi_delay_us(EM4X05_DIAG_TIMING_0_OFF * LF_DIAG_T0_US);
+        furi_hal_rfid_tim_read_continue();
+        furi_delay_us(EM4X05_DIAG_TIMING_0_ON * LF_DIAG_T0_US);
+    }
+}
+
+static void hitag_s_em4x05_diag_field_stop(void) {
+    furi_hal_rfid_tim_read_pause();
+    furi_delay_us(EM4X05_DIAG_FIELD_STOP_OFF * LF_DIAG_T0_US);
+    furi_hal_rfid_tim_read_continue();
+    furi_delay_us(EM4X05_DIAG_FIELD_STOP_ON * LF_DIAG_T0_US);
+}
+
+static void hitag_s_em4x05_diag_opcode(uint8_t opcode) {
+    bool parity = false;
+    for(uint8_t i = 0; i < 3; i++) {
+        bool bit = (opcode >> i) & 1U;
+        parity ^= bit;
+        hitag_s_em4x05_diag_bit(bit);
+    }
+    hitag_s_em4x05_diag_bit(parity);
+}
+
+static void hitag_s_em4x05_diag_addr(uint8_t addr) {
+    bool parity = false;
+    for(uint8_t i = 0; i < 4; i++) {
+        bool bit = (addr >> i) & 1U;
+        parity ^= bit;
+        hitag_s_em4x05_diag_bit(bit);
+    }
+    hitag_s_em4x05_diag_bit(false);
+    hitag_s_em4x05_diag_bit(false);
+    hitag_s_em4x05_diag_bit(parity);
+}
+
+static bool hitag_s_em4x05_line_parity(uint8_t data) {
+    bool parity = false;
+    for(uint8_t i = 0; i < 8; i++)
+        parity ^= (data >> i) & 1U;
+    return parity;
+}
+
+static uint64_t hitag_s_em4x05_prepare_data(uint32_t data) {
+    uint64_t data_with_parity = 0;
+    for(uint8_t i = 0; i < 4; i++) {
+        for(uint8_t j = 0; j < 8; j++) {
+            data_with_parity = (data_with_parity << 1) | ((data >> (i * 8 + j)) & 1U);
+        }
+        data_with_parity = (data_with_parity << 1) | hitag_s_em4x05_line_parity(data >> (i * 8));
+    }
+    for(uint8_t i = 0; i < 8; i++) {
+        bool column_parity = false;
+        for(uint8_t j = 0; j < 4; j++)
+            column_parity ^= (data >> (j * 8 + i)) & 1U;
+        data_with_parity = (data_with_parity << 1) | column_parity;
+    }
+    return data_with_parity << 1;
+}
+
+static void hitag_s_em4x05_diag_tx(void* context) {
+    const HitagSEm4x05Tx* tx = context;
+    furi_delay_us(8000);
+    hitag_s_em4x05_diag_field_stop();
+    hitag_s_em4x05_diag_bit(false);
+    hitag_s_em4x05_diag_opcode(tx->opcode);
+    if(tx->opcode == EM4X05_DIAG_OPCODE_READ) {
+        hitag_s_em4x05_diag_addr(tx->address);
+    } else if(tx->send_password) {
+        uint64_t data = hitag_s_em4x05_prepare_data(tx->password);
+        for(uint8_t i = 0; i < 45; i++) {
+            hitag_s_em4x05_diag_bit((data >> (44 - i)) & 1U);
+        }
+    }
+}
+
+static bool hitag_s_lf_diag_is_non_ttf(const HitagSLfDiagDecode* decode) {
+    if(decode->bits == 0) return false;
+    if(hitag_s_lf_diag_is_ttf_broadcast(decode)) return false;
+    if(decode->first[0] == 0x00 && decode->first[1] == 0x00 && decode->first[2] == 0x00) {
+        return false;
+    }
+    return true;
+}
+
+HitagSResult hitag_s_em4x05_detect_diagnostic(void) {
+    trace_append("\n--- EM4X05_DETECT ---\n");
+    FURI_LOG_I(TAG, "EM4x05 detect: read config/login/read");
+
+    static const HitagSEm4x05Tx tests[] = {
+        {.opcode = EM4X05_DIAG_OPCODE_READ, .address = 4},
+        {.opcode = EM4X05_DIAG_OPCODE_LOGIN, .send_password = true, .password = 0x00000000UL},
+        {.opcode = EM4X05_DIAG_OPCODE_READ, .address = 4},
+        {.opcode = EM4X05_DIAG_OPCODE_LOGIN, .send_password = true, .password = 0xFFFFFFFFUL},
+        {.opcode = EM4X05_DIAG_OPCODE_READ, .address = 4},
+    };
+
+    bool non_ttf = false;
+    HitagSResult best_result = HitagSResultTimeout;
+    hitag_s_field_reset_hard(20);
+    hitag_s_field_on_no_wait();
+    trace_append("EM4X05_READ: config/read command path\n");
+    trace_append("EM4X05_LOGIN: default password command path\n");
+
+    for(size_t i = 0; i < COUNT_OF(tests); i++) {
+        HitagSLfDiagDecode decode;
+        const char* name = tests[i].opcode == EM4X05_DIAG_OPCODE_READ ? "EM4X05_READ" :
+                                                                        "EM4X05_LOGIN";
+        trace_append("%s: command step=%d\n", name, (int)i);
+        HitagSResult result = hitag_s_lf_diag_tx_capture(
+            name, hitag_s_em4x05_diag_tx, (void*)&tests[i], 40000, &decode);
+        if(result == HitagSResultOk) best_result = result;
+        bool ttf_broadcast = hitag_s_lf_diag_is_ttf_broadcast(&decode);
+        bool this_non_ttf = hitag_s_lf_diag_is_non_ttf(&decode);
+        non_ttf |= this_non_ttf;
+        trace_append(
+            "EM4X05_DETECT: step=%d op=%s addr=%d password=%08lX result=%d non_ttf=%d ttf_broadcast=%d bits=%d edges=%d first=%02X %02X %02X %02X mod_guess=%s bitrate_guess=%s\n",
+            (int)i,
+            name,
+            tests[i].address,
+            (unsigned long)tests[i].password,
+            (int)result,
+            this_non_ttf,
+            ttf_broadcast,
+            (int)decode.bits,
+            (int)decode.edges,
+            decode.first[0],
+            decode.first[1],
+            decode.first[2],
+            decode.first[3],
+            decode.method ? decode.method : "?",
+            decode.bits >= 32 ? "word32" : "partial");
+        FURI_LOG_W(
+            TAG,
+            "EM4X05_DETECT: step=%d op=%s result=%d non_ttf=%d bits=%d edges=%d first=%02X %02X %02X %02X",
+            (int)i,
+            name,
+            (int)result,
+            this_non_ttf,
+            (int)decode.bits,
+            (int)decode.edges,
+            decode.first[0],
+            decode.first[1],
+            decode.first[2],
+            decode.first[3]);
+    }
+
+    hitag_s_field_off();
+    UNUSED(best_result);
+    return non_ttf ? HitagSResultOk : HitagSResultTimeout;
+}
+
 static size_t hitag_htu_send_receive(
     const uint8_t* tx_data,
     size_t tx_bits,
@@ -1121,23 +1664,23 @@ typedef struct {
 
 static const HitagSProtoMode proto_modes[] = {
     {
-        .cmd_5bit = 0x1A,
-        .name = "FADV",
-        .mode = HitagSModeFadv,
-        .uid_rx_mode = HitagSRxAC4K,
-        .data_rx_mode = HitagSRxMC8K,
-        .uid_sof = 3,
-        .data_sof = 6,
-        .select_response_bits = 40,
-        .response_crc = true,
-    },
-    {
         .cmd_5bit = 0x19,
         .name = "ADV1",
         .mode = HitagSModeAdv1,
         .uid_rx_mode = HitagSRxAC2K,
         .data_rx_mode = HitagSRxMC4K,
         .uid_sof = 0,
+        .data_sof = 6,
+        .select_response_bits = 40,
+        .response_crc = true,
+    },
+    {
+        .cmd_5bit = 0x1A,
+        .name = "FADV",
+        .mode = HitagSModeFadv,
+        .uid_rx_mode = HitagSRxAC4K,
+        .data_rx_mode = HitagSRxMC8K,
+        .uid_sof = 3,
         .data_sof = 6,
         .select_response_bits = 40,
         .response_crc = true,
@@ -1181,6 +1724,16 @@ const char* hitag_s_mode_name(HitagSMode mode) {
     default:
         return "?";
     }
+}
+
+static bool hitag_s_mode_to_proto_index(HitagSMode mode, size_t* mode_idx) {
+    for(size_t i = 0; i < COUNT_OF(proto_modes); i++) {
+        if(proto_modes[i].mode == mode) {
+            *mode_idx = i;
+            return true;
+        }
+    }
+    return false;
 }
 
 static inline size_t hitag_s_data_sof(void) {
@@ -1602,13 +2155,43 @@ static HitagSResult hitag_s_select_current_mode(uint32_t uid, uint32_t* config) 
     return last_result;
 }
 
-static HitagSResult hitag_s_uid_request_mode(size_t mode_idx, uint32_t* uid) {
+static void hitag_s_uid_request_report_reset(HitagSUidRequestReport* report) {
+    if(report) {
+        memset(report, 0, sizeof(*report));
+    }
+}
+
+static void hitag_s_uid_request_report_capture(
+    HitagSUidRequestReport* report,
+    const uint8_t* rx,
+    size_t rx_bits) {
+    if(!report) return;
+
+    report->attempts++;
+    report->last_rx_bits = rx_bits;
+    report->last_edge_count = hs_capture.edge_count;
+    if(hs_capture.edge_count > report->max_edge_count) {
+        report->max_edge_count = hs_capture.edge_count;
+    }
+    report->overflow = report->overflow || hs_capture.overflow;
+    memcpy(report->last_rx, rx, sizeof(report->last_rx));
+}
+
+static HitagSResult hitag_s_uid_request_mode(
+    size_t mode_idx,
+    uint32_t* uid,
+    size_t max_attempts,
+    size_t confirmation_min,
+    bool select_verification,
+    HitagSUidRequestReport* report,
+    uint32_t rx_timeout_us) {
     const HitagSProtoMode* mode = &proto_modes[mode_idx];
     uint8_t cmd[1] = {0};
     size_t bit_pos = 0;
     pack_bits(cmd, &bit_pos, mode->cmd_5bit, 5);
     uint32_t confirmed_uid = 0;
     size_t confirmed_votes = 0;
+    hitag_s_uid_request_report_reset(report);
 
     trace_append(
         "PROTO_MODE: %s cmd=%02X uid_rx=%s data_rx=%s uid_sof=%d data_sof=%d\n",
@@ -1625,11 +2208,12 @@ static HitagSResult hitag_s_uid_request_mode(size_t mode_idx, uint32_t* uid) {
         (int)bit_pos,
         (unsigned long)hitag_s_codec_bplm_frame_duration_us(cmd, bit_pos));
 
-    for(size_t attempt = 0; attempt < 3; attempt++) {
+    for(size_t attempt = 0; attempt < max_attempts; attempt++) {
         uint8_t rx[4] = {0};
         trace_append("  attempt %d/%s:\n", (int)(attempt + 1), mode->name);
-        size_t rx_bits = hitag_s_send_receive(
-            cmd, 5, rx, 32, HITAG_S_RX_TIMEOUT_UID, mode->uid_rx_mode, mode->uid_sof);
+        size_t rx_bits =
+            hitag_s_send_receive(cmd, 5, rx, 32, rx_timeout_us, mode->uid_rx_mode, mode->uid_sof);
+        hitag_s_uid_request_report_capture(report, rx, rx_bits);
 
         if(rx_bits != 32) {
             furi_delay_us(HITAG_S_T_WAIT_SC_US);
@@ -1639,6 +2223,7 @@ static HitagSResult hitag_s_uid_request_mode(size_t mode_idx, uint32_t* uid) {
         uint32_t candidate = ((uint32_t)rx[0] << 24) | ((uint32_t)rx[1] << 16) |
                              ((uint32_t)rx[2] << 8) | (uint32_t)rx[3];
         if(hitag_s_codec_is_low_entropy_uid(candidate)) {
+            if(report) report->low_entropy_reject = true;
             trace_append(
                 "  %s: rejected low-entropy UID=%08lX\n", mode->name, (unsigned long)candidate);
             furi_delay_us(HITAG_S_T_WAIT_SC_US);
@@ -1646,9 +2231,22 @@ static HitagSResult hitag_s_uid_request_mode(size_t mode_idx, uint32_t* uid) {
         }
         if(mode->uid_rx_mode == HitagSRxAC2K &&
            hitag_s_capture_has_excessive_glitches(&hs_capture)) {
+            if(report) report->noisy_reject = true;
             trace_append("  %s: rejected noisy AC2K capture\n", mode->name);
             furi_delay_us(HITAG_S_T_WAIT_SC_US);
             continue;
+        }
+
+        if(confirmation_min <= 1) {
+            *uid = candidate;
+            active_mode_idx = mode_idx;
+            active_uid_requires_select_verification = select_verification;
+            trace_append(
+                "  RESULT: OK, UID=%08lX (mode=%s, %s, single-shot)\n",
+                (unsigned long)*uid,
+                mode->name,
+                hitag_s_rx_mode_name(mode->uid_rx_mode));
+            return HitagSResultOk;
         }
 
         if(confirmed_votes == 0 || confirmed_uid != candidate) {
@@ -1666,7 +2264,7 @@ static HitagSResult hitag_s_uid_request_mode(size_t mode_idx, uint32_t* uid) {
         if(confirmed_votes >= HITAG_S_UID_MODE_CONFIRMATION_MIN) {
             *uid = confirmed_uid;
             active_mode_idx = mode_idx;
-            active_uid_requires_select_verification = false;
+            active_uid_requires_select_verification = select_verification;
             trace_append(
                 "  RESULT: OK, UID=%08lX (mode=%s, %s)\n",
                 (unsigned long)*uid,
@@ -1690,6 +2288,35 @@ static HitagSResult hitag_s_uid_request_mode(size_t mode_idx, uint32_t* uid) {
     return HitagSResultTimeout;
 }
 
+HitagSResult hitag_s_uid_request_adv1(uint32_t* uid) {
+    return hitag_s_uid_request_mode(
+        0, uid, 3, HITAG_S_UID_MODE_CONFIRMATION_MIN, false, NULL, HITAG_S_RX_TIMEOUT_UID);
+}
+
+HitagSResult hitag_s_uid_request_adv1_once(uint32_t* uid, HitagSUidRequestReport* report) {
+    return hitag_s_uid_request_once(HitagSModeAdv1, uid, report);
+}
+
+HitagSResult
+    hitag_s_uid_request_once(HitagSMode mode, uint32_t* uid, HitagSUidRequestReport* report) {
+    return hitag_s_uid_request_once_timed(mode, uid, report, HITAG_S_RX_TIMEOUT_UID);
+}
+
+HitagSResult hitag_s_uid_request_once_timed(
+    HitagSMode mode,
+    uint32_t* uid,
+    HitagSUidRequestReport* report,
+    uint32_t rx_timeout_us) {
+    size_t mode_idx = 0;
+    if(!hitag_s_mode_to_proto_index(mode, &mode_idx)) return HitagSResultError;
+
+    const size_t max_attempts = 1;
+    const size_t confirmation_min = 1;
+    const bool select_verification = true;
+    return hitag_s_uid_request_mode(
+        mode_idx, uid, max_attempts, confirmation_min, select_verification, report, rx_timeout_us);
+}
+
 HitagSResult hitag_s_open_session(HitagSSessionInfo* session) {
     if(session) {
         memset(session, 0, sizeof(*session));
@@ -1705,7 +2332,14 @@ HitagSResult hitag_s_open_session(HitagSSessionInfo* session) {
         active_mode_idx = mode_idx;
         trace_append("  mode probe: %s\n", proto_modes[mode_idx].name);
 
-        last_result = hitag_s_uid_request_mode(mode_idx, &uid);
+        last_result = hitag_s_uid_request_mode(
+            mode_idx,
+            &uid,
+            3,
+            HITAG_S_UID_MODE_CONFIRMATION_MIN,
+            false,
+            NULL,
+            HITAG_S_RX_TIMEOUT_UID);
         if(last_result != HitagSResultOk) {
             trace_append("  field reset before next protocol mode\n");
             hitag_s_field_off();

@@ -130,6 +130,82 @@ class SourceInvariantTests(unittest.TestCase):
         self.assertIn("pull=release", debug_read)
         self.assertIn("powerup_us=", debug_read)
 
+    def test_tools_menu_exposes_black_box_ttf_diagnostics(self):
+        source = (ROOT / "scenes/hitags_writer_scene_tools_menu.c").read_text()
+
+        self.assertIn('"TTF Timing"', source)
+        self.assertIn('"Disturb Test"', source)
+        self.assertIn('"Late Disturb"', source)
+        self.assertIn('"Late Command"', source)
+        self.assertIn("HitagSDebugToolTtfTiming", source)
+        self.assertIn("HitagSDebugToolDisturb", source)
+        self.assertIn("HitagSDebugToolLateDisturb", source)
+        self.assertIn("HitagSDebugToolLateCommand", source)
+        self.assertGreater(source.index('"TTF Timing"'), source.index('"Debug Read"'))
+
+    def test_ttf_timing_diagnostic_records_cold_reset_sweep_in_trace_and_log(self):
+        source = (ROOT / "hitag_s_8268.c").read_text()
+
+        self.assertIn("HitagSResult hitag_s_8268_ttf_timing_diagnostic", source)
+        self.assertIn("TTF_TIMING: reset_ms=", source)
+        self.assertIn("first_edge_us=", source)
+        self.assertIn("edges=", source)
+        self.assertIn("hitag_s_capture_passive_ttf", source)
+
+    def test_disturb_diagnostic_records_early_pause_matrix_in_trace_and_log(self):
+        source = (ROOT / "hitag_s_8268.c").read_text()
+
+        self.assertIn("HitagSResult hitag_s_8268_disturb_diagnostic", source)
+        self.assertIn("DISTURB: reset_ms=", source)
+        self.assertIn("pause_us=", source)
+        self.assertIn("wait_us=", source)
+        self.assertIn("hitag_s_send_pause_us", source)
+
+    def test_late_disturb_diagnostic_targets_observed_ttf_start_window(self):
+        source = (ROOT / "hitag_s_8268.c").read_text()
+
+        self.assertIn("HitagSResult hitag_s_8268_late_disturb_diagnostic", source)
+        self.assertIn("LATE_DISTURB: reset_ms=", source)
+        self.assertIn("wait_us=", source)
+        self.assertIn("pause_us=", source)
+        self.assertIn("HITAG_S_8268_LATE_DISTURB_POINTS", source)
+        self.assertIn("10000", source)
+        self.assertIn("10500", source)
+
+    def test_late_command_diagnostic_sends_uid_requests_in_observed_ttf_window(self):
+        source = (ROOT / "hitag_s_8268.c").read_text()
+
+        self.assertIn("HitagSResult hitag_s_8268_late_command_diagnostic", source)
+        self.assertIn("LATE_COMMAND: reset_ms=", source)
+        self.assertIn("mode=%s", source)
+        self.assertIn("rx_bits=%d", source)
+        self.assertIn("HITAG_S_8268_LATE_COMMAND_POINTS", source)
+        self.assertIn("hitag_s_uid_request_once_timed", source)
+        self.assertIn("HitagSModeAdv1", source)
+        self.assertIn("HitagSModeFadv", source)
+        self.assertIn("HitagSModeAdv2", source)
+        self.assertIn("HitagSModeStd", source)
+
+    def test_passive_ttf_first_edge_is_derived_from_captured_durations(self):
+        source = (ROOT / "hitag_s_session.c").read_text()
+        passive = source.split("HitagSResult hitag_s_capture_passive_ttf", 1)[1].split(
+            "static size_t hitag_htu_send_receive",
+            1,
+        )[0]
+
+        self.assertIn("hitag_s_capture_first_signal_us", source)
+        self.assertIn("first_edge_us = hitag_s_capture_first_signal_us(&hs_capture)", passive)
+        self.assertNotIn("first_edge_us = elapsed_us", passive)
+
+    def test_debug_read_scene_starts_selected_tool_operation(self):
+        source = (ROOT / "scenes/hitags_writer_scene_debug_read.c").read_text()
+
+        self.assertIn("hitags_writer_scene_debug_read_worker_op", source)
+        self.assertIn("HitagSWorkerTtfTiming", source)
+        self.assertIn("HitagSWorkerDisturbTest", source)
+        self.assertIn("HitagSWorkerLateDisturbTest", source)
+        self.assertIn("HitagSWorkerLateCommandTest", source)
+
     def test_debug_read_abort_paths_emit_trace_summary_before_return(self):
         source = (ROOT / "hitag_s_8268.c").read_text()
         debug_read = source.split("HitagSResult hitag_s_debug_read_sequence_ex", 1)[1]
@@ -185,6 +261,135 @@ class SourceInvariantTests(unittest.TestCase):
         self.assertIn("RESULT: OK, UID=%08lX (mode=%s, %s, marginal)", uid_request)
         self.assertIn("using marginal noisy UID", uid_request)
 
+    def test_tools_menu_exposes_lf_clone_identification_tools(self):
+        source = (ROOT / "scenes/hitags_writer_scene_tools_menu.c").read_text()
+
+        self.assertIn('"T5577 Detect"', source)
+        self.assertIn('"EM4x05 Detect"', source)
+        self.assertIn('"Write Stimulus"', source)
+        self.assertIn("HitagSDebugToolT5577Detect", source)
+        self.assertIn("HitagSDebugToolEm4x05Detect", source)
+        self.assertIn("HitagSDebugToolWriteStimulusVerify", source)
+
+    def test_debug_read_scene_starts_lf_clone_diagnostic_operations(self):
+        header = (ROOT / "hitags_writer_i.h").read_text()
+        source = (ROOT / "scenes/hitags_writer_scene_debug_read.c").read_text()
+
+        self.assertIn("HitagSWorkerT5577Detect", header)
+        self.assertIn("HitagSWorkerEm4x05Detect", header)
+        self.assertIn("HitagSWorkerWriteStimulusVerify", header)
+        self.assertIn("HitagSWorkerT5577Detect", source)
+        self.assertIn("HitagSWorkerEm4x05Detect", source)
+        self.assertIn("HitagSWorkerWriteStimulusVerify", source)
+        self.assertIn('"T5577 Detect"', source)
+        self.assertIn('"EM4x05 Detect"', source)
+        self.assertIn('"Write Stimulus"', source)
+
+    def test_lf_clone_detect_diagnostics_record_expected_trace_markers(self):
+        proto = (ROOT / "hitag_s_proto.h").read_text()
+        session = (ROOT / "hitag_s_session.c").read_text()
+
+        self.assertIn("hitag_s_t5577_detect_diagnostic", proto)
+        self.assertIn("hitag_s_em4x05_detect_diagnostic", proto)
+        self.assertIn("T5577_DETECT:", session)
+        self.assertIn("T5577_BLOCK0:", session)
+        self.assertIn("EM4X05_DETECT:", session)
+        self.assertIn("EM4X05_READ:", session)
+        self.assertIn("mod_guess=", session)
+        self.assertIn("bitrate_guess=", session)
+
+    def test_lf_clone_detect_rejects_ttf_clock_patterns_as_command_responses(self):
+        session = (ROOT / "hitag_s_session.c").read_text()
+        t5577 = session.split("HitagSResult hitag_s_t5577_detect_diagnostic", 1)[1].split(
+            "#define EM4X05_DIAG_TIMING_1", 1
+        )[0]
+        em4x05 = session.split("static bool hitag_s_lf_diag_is_non_ttf", 1)[1].split(
+            "HitagSResult hitag_s_em4x05_detect_diagnostic", 1
+        )[0]
+
+        self.assertIn("hitag_s_lf_diag_is_ttf_broadcast", session)
+        self.assertIn("hitag_htu_codec_is_ttf_broadcast_candidate", session)
+        self.assertIn("response=ttf_broadcast", t5577)
+        self.assertIn("block0=none", t5577)
+        self.assertIn("result = HitagSResultTimeout", t5577)
+        self.assertIn("!hitag_s_lf_diag_is_ttf_broadcast", t5577)
+        self.assertIn("hitag_s_lf_diag_is_ttf_broadcast", em4x05)
+        self.assertIn("return non_ttf ? HitagSResultOk : HitagSResultTimeout", session)
+
+    def test_write_stimulus_requires_confirmation_and_restores_original_id(self):
+        scene = (ROOT / "scenes/hitags_writer_scene_debug_read.c").read_text()
+        worker = (ROOT / "hitags_worker.c").read_text()
+
+        self.assertIn("DebugReadStateConfirm", scene)
+        self.assertIn("This changes card", scene)
+        self.assertIn("WRITE_STIM_RESTORE_ATTEMPTS", worker)
+        self.assertIn("temp_id[4] ^= 0x01", worker)
+        self.assertIn("t5577_write", worker)
+        self.assertIn("WRITE_STIM:", worker)
+        self.assertIn("WRITE_STIM_RESTORE:", worker)
+        self.assertIn("WRITE_STIM_RESTORE_FAILED", worker)
+
+    def test_write_matrix_records_edge_model_and_classifies_write_effect(self):
+        worker = (ROOT / "hitags_worker.c").read_text()
+        tools = (ROOT / "scenes/hitags_writer_scene_tools_menu.c").read_text()
+        scene = (ROOT / "scenes/hitags_writer_scene_debug_read.c").read_text()
+
+        self.assertIn('"Write Matrix"', tools)
+        self.assertIn("Write Matrix", scene)
+        self.assertIn("WRITE_MATRIX_BEGIN", worker)
+        self.assertIn("WRITE_TRIAL method=", worker)
+        self.assertIn("EDGE_MODEL phase=", worker)
+        self.assertIn("WRITE_RESULT method=", worker)
+        self.assertIn("CONTROL_DELTA", worker)
+        self.assertIn("CLONE_DELTA", worker)
+        self.assertIn("after50", worker)
+        self.assertIn("after150", worker)
+        self.assertIn("after500", worker)
+        self.assertIn("temp_seen && hitags_worker_id_equal(after, temp_id)", worker)
+        self.assertIn("hitags_worker_id_equal(after, original)", worker)
+        self.assertIn("classification=write_ignored", worker)
+        self.assertIn("classification=write_changed", worker)
+
+    def test_write_matrix_skips_restore_when_write_is_ignored(self):
+        worker = (ROOT / "hitags_worker.c").read_text()
+        matrix = worker.split("static bool hitags_worker_run_write_trial", 1)[1].split(
+            "static void hitags_worker_write_stimulus_verify",
+            1,
+        )[0]
+        entry = worker.split("static void hitags_worker_write_stimulus_verify", 1)[1].split(
+            "int32_t hitags_writer_worker_thread",
+            1,
+        )[0]
+
+        self.assertIn("restore_needed", matrix)
+        self.assertIn("temp_seen && hitags_worker_id_equal(after, temp_id)", matrix)
+        self.assertIn("!hitags_worker_id_equal(after, original)", matrix)
+        self.assertLess(matrix.index("restore_needed = true"), matrix.index("for(uint8_t attempt"))
+        self.assertIn("hitags_worker_run_write_trial", entry)
+        ignored_branch = matrix.split("classification = \"write_ignored\"", 1)[1].split(
+            "else if",
+            1,
+        )[0]
+        self.assertNotIn("restore_needed = true", ignored_branch)
+
+    def test_write_matrix_uses_official_t5577_full_mask_and_limited_password_set(self):
+        worker = (ROOT / "hitags_worker.c").read_text()
+        matrix = worker.split("static void hitags_worker_write_stimulus_verify", 1)[1].split(
+            "int32_t hitags_writer_worker_thread",
+            1,
+        )[0]
+
+        self.assertIn("t5577_write(&data)", worker)
+        self.assertIn("t5577_write_with_mask(&data", worker)
+        self.assertIn('.method = "t5577_mask_data"', worker)
+        self.assertIn('.method = "t5577_mask_full"', worker)
+        self.assertIn("0x00000000UL", worker)
+        self.assertIn("0xFFFFFFFFUL", worker)
+        self.assertIn("0x51243648UL", worker)
+        self.assertIn("app->password", worker)
+        self.assertNotIn("wipe", matrix)
+        self.assertNotIn("lock", matrix)
+
     def test_uid_request_uses_high_vote_start01_consensus_as_last_fallback(self):
         source = (ROOT / "hitag_s_session.c").read_text()
         uid_request = source.split("HitagSResult hitag_s_uid_request", 1)[1].split(
@@ -237,12 +442,24 @@ class SourceInvariantTests(unittest.TestCase):
         self.assertIn('"ADV1"', proto_modes)
         self.assertIn('"ADV2"', proto_modes)
         self.assertIn('"STD"', proto_modes)
-        self.assertLess(proto_modes.index('"FADV"'), proto_modes.index('"ADV1"'))
+        self.assertLess(proto_modes.index('"ADV1"'), proto_modes.index('"FADV"'))
         self.assertLess(proto_modes.index('"ADV1"'), proto_modes.index('"ADV2"'))
         self.assertLess(proto_modes.index('"ADV2"'), proto_modes.index('"STD"'))
         self.assertIn("HitagSRxAC4K", proto_modes)
         self.assertIn("HitagSRxMC8K", proto_modes)
         self.assertIn("select_response_bits", proto_modes)
+
+    def test_8268_mode_switch_first_uid_request_is_adv1(self):
+        source = (ROOT / "hitag_s_session.c").read_text()
+        proto_modes = source.split("static const HitagSProtoMode proto_modes[]", 1)[1].split(
+            "static size_t active_mode_idx",
+            1,
+        )[0]
+
+        first_mode = proto_modes.split("},", 1)[0]
+        self.assertIn('.cmd_5bit = 0x19', first_mode)
+        self.assertIn('.name = "ADV1"', first_mode)
+        self.assertIn("HitagSResult hitag_s_uid_request_adv1", source)
 
     def test_public_debug_read_session_types_are_declared(self):
         header = (ROOT / "hitag_s_proto.h").read_text()
@@ -301,7 +518,18 @@ class SourceInvariantTests(unittest.TestCase):
         self.assertIn("confirmed_uid", mode_probe)
         self.assertIn("confirmed_votes", mode_probe)
         self.assertIn("rejected unstable UID candidate", mode_probe)
-        self.assertLess(mode_probe.index("confirmed_votes >="), mode_probe.index("RESULT: OK"))
+        self.assertIn("confirmation_min <= 1", mode_probe)
+        self.assertLess(
+            mode_probe.index("if(confirmation_min <= 1)"),
+            mode_probe.index("confirmed_votes >="),
+        )
+
+        repeated_adv1 = source.split("HitagSResult hitag_s_uid_request_adv1", 1)[1].split(
+            "HitagSResult hitag_s_uid_request_adv1_once",
+            1,
+        )[0]
+        self.assertIn("HITAG_S_UID_MODE_CONFIRMATION_MIN", repeated_adv1)
+        self.assertIn("false", repeated_adv1)
 
     def test_debug_read_ex_reports_stage_and_page_status(self):
         source = (ROOT / "hitag_s_8268.c").read_text()
@@ -326,17 +554,60 @@ class SourceInvariantTests(unittest.TestCase):
         self.assertIn("memmgr_get_free_heap", debug_read_ex)
         self.assertIn("Debug read still probing", debug_read_ex)
 
-    def test_debug_read_does_not_offer_save_for_noise_only_trace(self):
+    def test_debug_read_runs_8268_early_wake_before_generic_fallback(self):
+        source = (ROOT / "hitag_s_8268.c").read_text()
+        header = (ROOT / "hitag_s_proto.h").read_text()
+        session = (ROOT / "hitag_s_session.c").read_text()
+        debug_read_ex = source.split("HitagSResult hitag_s_debug_read_sequence_ex", 1)[1]
+
+        self.assertIn("hitag_s_8268_debug_probe_uid_matrix", source)
+        self.assertIn("hitag_s_uid_request_once", header)
+        self.assertIn("hitag_s_uid_request_once", session)
+        self.assertIn("HitagSResult hitag_s_uid_request_once_timed", header)
+        self.assertIn("HitagSResult hitag_s_uid_request_once_timed", session)
+        self.assertIn("HITAG_S_8268_DEBUG_MODES", source)
+        self.assertIn("HITAG_S_8268_DEBUG_RX_TIMEOUT_US", source)
+        for mode_name in ("HitagSModeAdv1", "HitagSModeFadv", "HitagSModeAdv2", "HitagSModeStd"):
+            self.assertIn(mode_name, source)
+        self.assertIn("--- 8268 EARLY WAKE DEBUG ---", source)
+        self.assertLess(
+            debug_read_ex.index("hitag_s_8268_debug_probe_uid_matrix(&uid"),
+            debug_read_ex.index("hitag_s_field_on()"),
+        )
+        self.assertLess(
+            debug_read_ex.index("hitag_s_8268_debug_probe_uid_matrix(&uid"),
+            debug_read_ex.index("hitag_htu_probe_uid(&report->htu_probe)"),
+        )
+        self.assertIn("8268 early wake failed; falling back to HTU/generic debug", debug_read_ex)
+        debug_probe = source.split("static HitagSResult hitag_s_8268_debug_probe_uid_matrix", 1)[
+            1
+        ].split("HitagSResult hitag_s_read_uid_sequence", 1)[0]
+        self.assertIn("8268 debug matrix result", debug_probe)
+        self.assertIn("hitag_s_uid_request_once_timed", debug_probe)
+        self.assertIn("mode=%s", debug_probe)
+        self.assertIn("rx_bits=%d edges=%d max_edges=%d", debug_probe)
+        self.assertIn("no_activity_streak", debug_probe)
+        self.assertIn("HITAG_S_8268_DEBUG_NO_ACTIVITY_LIMIT", source)
+        self.assertIn("8268 debug matrix stopped: no tag activity", debug_probe)
+
+    def test_debug_read_keeps_trace_for_noise_only_ttf_diagnosis(self):
         worker = (ROOT / "hitags_worker.c").read_text()
+        scene = (ROOT / "scenes/hitags_writer_scene_debug_read.c").read_text()
         debug_read = worker.split("static void hitags_worker_debug_read", 1)[1].split(
             "int32_t hitags_writer_worker_thread", 1
         )[0]
 
         self.assertIn("!report.session.selected", debug_read)
         self.assertIn("!report.htu_probe.detected", debug_read)
-        self.assertIn("furi_string_free((FuriString*)app->debug_trace)", debug_read)
-        self.assertIn("app->debug_trace = NULL", debug_read)
+        noise_branch = debug_read.split("!report.session.selected && !report.htu_probe.detected", 1)[
+            1
+        ].split("} else {", 1)[0]
+        self.assertIn("Debug read captured rejected noise; trace ready", noise_branch)
+        self.assertIn("HitagSEventDebugPartial", noise_branch)
+        self.assertNotIn("furi_string_free((FuriString*)app->debug_trace)", noise_branch)
+        self.assertNotIn("app->debug_trace = NULL", noise_branch)
         self.assertIn("report.session.selected", debug_read.split("HitagSEventDebugPartial", 1)[0])
+        self.assertIn("Noise/TTF Only\\nTrace ready", scene)
 
     def test_debug_read_keeps_trace_when_htu_probe_detects_8265(self):
         source = (ROOT / "hitag_s_8268.c").read_text()
@@ -356,9 +627,21 @@ class SourceInvariantTests(unittest.TestCase):
         self.assertIn("report.htu_probe.detected", debug_worker)
         self.assertIn("HitagSEventDebugPartial", debug_worker)
 
-    def test_read_flows_run_htu_probe_before_final_failure(self):
+    def test_debug_read_stops_after_early_wake_when_htu_sees_ttf_broadcast(self):
+        source = (ROOT / "hitag_s_8268.c").read_text()
+        debug_read_ex = source.split("HitagSResult hitag_s_debug_read_sequence_ex", 1)[1]
+        fallback = debug_read_ex.split("hitag_htu_probe_uid(&report->htu_probe)", 1)[1].split(
+            "uint32_t start_tick = furi_get_tick()",
+            1,
+        )[0]
+
+        self.assertIn("report->htu_probe.ttf_broadcast", fallback)
+        self.assertIn("ABORT: TTF broadcast after 8268 early wake", fallback)
+        self.assertIn("hitag_s_debug_read_finish", fallback)
+
+    def test_8268_read_flows_do_not_run_htu_probe_before_final_failure(self):
         worker = (ROOT / "hitags_worker.c").read_text()
-        self.assertIn("hitags_worker_probe_htu_once", worker)
+        self.assertNotIn("hitags_worker_probe_htu_once", worker)
 
         read_uid = worker.split("static void hitags_worker_read_uid", 1)[1].split(
             "static void hitags_worker_read_pages", 1
@@ -367,18 +650,10 @@ class SourceInvariantTests(unittest.TestCase):
             "static void hitags_worker_write_uid", 1
         )[0]
 
-        self.assertIn("hitags_worker_probe_htu_once(\"Read UID\")", read_uid)
-        self.assertIn("hitags_worker_probe_htu_once(\"Read Tag Data\")", read_pages)
-        self.assertIn("htu_probe_done", read_uid)
-        self.assertIn("htu_probe_done", read_pages)
-        self.assertLess(
-            read_uid.index("hitags_worker_probe_htu_once(\"Read UID\")"),
-            read_uid.index("if(attempts >= max_attempts)"),
-        )
-        self.assertLess(
-            read_pages.index("hitags_worker_probe_htu_once(\"Read Tag Data\")"),
-            read_pages.index("if(attempts >= max_attempts)"),
-        )
+        self.assertNotIn("hitags_worker_probe_htu_once(\"Read UID\")", read_uid)
+        self.assertNotIn("hitags_worker_probe_htu_once(\"Read Tag Data\")", read_pages)
+        self.assertNotIn("htu_probe_done", read_uid)
+        self.assertNotIn("htu_probe_done", read_pages)
 
     def test_htu_probe_logs_negative_results_to_runtime_log(self):
         source = (ROOT / "hitag_s_session.c").read_text()
@@ -433,9 +708,114 @@ class SourceInvariantTests(unittest.TestCase):
     def test_rf_field_off_is_idempotent(self):
         transport = (ROOT / "hitag_s_transport.c").read_text()
         self.assertIn("static bool hitag_s_field_active", transport)
-        self.assertIn("if(hitag_s_field_active)", transport)
+        self.assertIn("furi_hal_bus_is_enabled(FuriHalBusTIM1)", transport)
         self.assertIn("hitag_s_field_active = true", transport)
         self.assertIn("hitag_s_field_active = false", transport)
+
+    def test_8268_sequences_use_early_hitag_s_mode_switch_window(self):
+        source = (ROOT / "hitag_s_8268.c").read_text()
+        header = (ROOT / "hitag_s_proto.h").read_text()
+        transport = (ROOT / "hitag_s_transport.c").read_text()
+        helper = source.split("static void hitag_s_8268_enter_mode_switch_window", 1)[1].split(
+            "static HitagSResult hitag_s_8268_probe_uid_adv1", 1
+        )[0]
+
+        self.assertIn("hitag_s_field_reset_hard(reset_ms)", helper)
+        self.assertIn("void hitag_s_field_reset_hard(uint32_t off_ms)", header)
+        self.assertIn("void hitag_s_field_reset_hard(uint32_t off_ms)", transport)
+        hard_reset = transport.split("void hitag_s_field_reset_hard", 1)[1].split(
+            "void hitag_s_field_on_no_wait", 1
+        )[0]
+        self.assertIn("#include <furi_hal_bus.h>", transport)
+        self.assertIn("furi_hal_bus_is_enabled(FuriHalBusTIM1)", hard_reset)
+        self.assertNotIn("furi_hal_rfid_tim_read_capture_stop()", hard_reset)
+        self.assertLess(
+            hard_reset.index("furi_hal_bus_is_enabled(FuriHalBusTIM1)"),
+            hard_reset.index("furi_hal_rfid_tim_read_stop()"),
+        )
+        self.assertLess(
+            hard_reset.index("furi_hal_rfid_tim_read_stop()"),
+            hard_reset.index("furi_hal_rfid_pins_reset()"),
+        )
+        self.assertIn("HITAG_S_8268_FIELD_RESET_MS[]", source)
+        self.assertIn("200", source)
+        self.assertIn("hitag_s_field_on_no_wait()", helper)
+        self.assertIn("reset_ms", helper)
+        self.assertIn("first_wait_us", helper)
+        self.assertIn("8268 mode-switch", helper)
+        self.assertIn("8268 mode-switch reset done", helper)
+        self.assertLess(
+            helper.index("hitag_s_field_reset_hard(reset_ms)"),
+            helper.index("8268 mode-switch reset done"),
+        )
+        self.assertLess(
+            helper.index("8268 mode-switch reset done"),
+            helper.index("hitag_s_field_on_no_wait()"),
+        )
+        critical_tail = helper.split("furi_delay_us(first_wait_us);", 1)[1]
+        self.assertNotIn("FURI_LOG", critical_tail)
+        self.assertNotIn("trace_append", critical_tail)
+
+        probe = source.split("static HitagSResult hitag_s_8268_probe_uid_adv1", 1)[1].split(
+            "HitagSResult hitag_s_read_uid_sequence", 1
+        )[0]
+        self.assertIn("HITAG_S_8268_WAKE_DELAYS_US", source)
+        self.assertIn("2240", source)
+        self.assertIn("4400", source)
+        self.assertIn("hitag_s_8268_enter_mode_switch_window(reset_ms, first_wait_us)", probe)
+        self.assertIn("hitag_s_uid_request_adv1_once(uid, &report)", probe)
+        self.assertNotIn("hitag_s_uid_request(uid)", probe)
+        self.assertIn("320", source)
+        self.assertIn("HitagSUidRequestReport report", probe)
+        self.assertIn("reset_ms=%lu", probe)
+        self.assertIn("rx_bits=%d edges=%d max_edges=%d", probe)
+
+    def test_8268_uid_wake_uses_single_shot_adv1_with_select_verification(self):
+        header = (ROOT / "hitag_s_proto.h").read_text()
+        session = (ROOT / "hitag_s_session.c").read_text()
+
+        self.assertIn("typedef struct {\n    size_t attempts;", header)
+        self.assertIn("HitagSResult hitag_s_uid_request_adv1_once", header)
+
+        uid_mode = session.split("static HitagSResult hitag_s_uid_request_mode", 1)[1].split(
+            "HitagSResult hitag_s_uid_request_adv1",
+            1,
+        )[0]
+        self.assertIn("size_t max_attempts", uid_mode)
+        self.assertIn("size_t confirmation_min", uid_mode)
+        self.assertIn("bool select_verification", uid_mode)
+        self.assertIn("active_uid_requires_select_verification = select_verification", uid_mode)
+
+        once = session.split("HitagSResult hitag_s_uid_request_adv1_once", 1)[1].split(
+            "HitagSResult hitag_s_uid_request_adv1",
+            1,
+        )[0]
+        self.assertIn("max_attempts = 1", once)
+        self.assertIn("confirmation_min = 1", once)
+        self.assertIn("select_verification = true", once)
+
+    def test_8268_authentication_is_select_then_page_64_password_write(self):
+        session = (ROOT / "hitag_s_session.c").read_text()
+        operations = (ROOT / "hitag_s_8268.c").read_text()
+        select_auth = operations.split("hitag_s_8268_select_and_auth", 1)[1].split(
+            "HitagSResult hitag_s_8268_write_sequence", 1
+        )[0]
+        auth = session.split("HitagSResult hitag_s_8268_authenticate", 1)[1].split(
+            "HitagSResult hitag_s_write_page", 1
+        )[0]
+
+        self.assertLess(
+            select_auth.index("hitag_s_8268_probe_uid_adv1(uid)"),
+            select_auth.index("hitag_s_select(*uid, config)"),
+        )
+        self.assertLess(
+            select_auth.index("hitag_s_select(*uid, config)"),
+            select_auth.index("hitag_s_8268_authenticate"),
+        )
+        self.assertIn("HITAG_S_8268_AUTH_PAGE", auth)
+        self.assertIn("TX: WRITE_PAGE addr=64", auth)
+        self.assertIn("TX: Password=%08lX", auth)
+        self.assertIn("HITAG_S_8268_PASSWORD", (ROOT / "hitag_s_proto.h").read_text())
 
     def test_htu_ttf_classification_is_sticky_across_candidates(self):
         source = (ROOT / "hitag_s_session.c").read_text()

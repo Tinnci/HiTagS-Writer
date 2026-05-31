@@ -82,6 +82,19 @@ class Transaction:
 
 
 @dataclass
+class EdgeModelEvent:
+    phase: str = ""
+    first_edge_us: int = 0
+    edges: int = 0
+    rx_bits: int = 0
+    first_bytes: bytes = b""
+    ttf_score: int = 0
+    low_entropy: int = 0
+    clock_guess: str = "unknown"
+    classification: str = "no_activity"
+
+
+@dataclass
 class Mc4kSweepCandidate:
     bits: int = 0
     data: bytes = b""
@@ -104,6 +117,88 @@ def parse_edges(edge_line: str) -> list:
     for m in re.finditer(r'([HL]):(\d+)', edge_line):
         edges.append(Edge(level=m.group(1), duration=int(m.group(2))))
     return edges
+
+
+def _bytes_to_bits(data: bytes, rx_bits: int) -> list:
+    bits = []
+    for i in range(min(rx_bits, len(data) * 8)):
+        bits.append((data[i // 8] >> (7 - (i % 8))) & 1)
+    return bits
+
+
+def _alternating_score(bits: list) -> int:
+    if not bits:
+        return 0
+    scores = []
+    for first in (0, 1):
+        matches = 0
+        for i, bit in enumerate(bits):
+            if bit == ((first + i) & 1):
+                matches += 1
+        scores.append(matches)
+    return int(round(max(scores) * 100 / len(bits)))
+
+
+def _ttf_score(data: bytes, bits: list) -> int:
+    bit_score = _alternating_score(bits)
+    if not data:
+        return bit_score
+    clock_bytes = sum(1 for b in data if b in (0xAA, 0x55, 0xD5))
+    byte_score = int(round(clock_bytes * 100 / len(data)))
+    return max(bit_score, byte_score)
+
+
+def _low_entropy_score(bits: list) -> int:
+    if not bits:
+        return 0
+    ones = sum(bits)
+    zeros = len(bits) - ones
+    return int(round(max(ones, zeros) * 100 / len(bits)))
+
+
+def classify_edge_model(
+    *,
+    first_edge_us: int,
+    edges: int,
+    rx_bits: int,
+    first_bytes: bytes,
+    phase: str = "",
+) -> EdgeModelEvent:
+    """Classify a compact LF edge/RX summary using the same labels as firmware traces."""
+    bits = _bytes_to_bits(first_bytes, rx_bits)
+    ttf_score = _ttf_score(first_bytes, bits)
+    low_entropy = _low_entropy_score(bits)
+    clock_guess = "RF/64" if ttf_score >= 80 and rx_bits >= 32 else "unknown"
+
+    if edges <= 2 and rx_bits == 0:
+        classification = "no_activity"
+    elif edges < 8 and rx_bits < 8:
+        classification = "partial_noise"
+    elif rx_bits >= 32 and ttf_score >= 80:
+        classification = "ttf_broadcast"
+    elif rx_bits >= 32 and low_entropy < 90:
+        classification = "command_response"
+    else:
+        classification = "partial_noise"
+
+    return EdgeModelEvent(
+        phase=phase,
+        first_edge_us=first_edge_us,
+        edges=edges,
+        rx_bits=rx_bits,
+        first_bytes=first_bytes,
+        ttf_score=ttf_score,
+        low_entropy=low_entropy,
+        clock_guess=clock_guess,
+        classification=classification,
+    )
+
+
+def _parse_kv_line(stripped: str) -> dict:
+    values = {}
+    for key, value in re.findall(r'(\w+)=([^\s]+)', stripped):
+        values[key] = value
+    return values
 
 
 def decode_mc4k(edges: list, threshold: int = 192, sof_bits: int = 6) -> tuple:
@@ -580,6 +675,8 @@ class TraceFile:
     header: str = ""
     transactions: list = field(default_factory=list)
     page_table: dict = field(default_factory=dict)
+    edge_models: list = field(default_factory=list)
+    write_results: list = field(default_factory=list)
     summary: str = ""
     uid: Optional[int] = None
     config: Optional[int] = None
@@ -622,6 +719,29 @@ def parse_trace(text: str) -> TraceFile:
                 tf.field_duty = field_match.group(2)
                 tf.field_pull = field_match.group(3)
                 tf.field_powerup_us = int(field_match.group(4))
+            continue
+
+        if stripped.startswith("EDGE_MODEL "):
+            values = _parse_kv_line(stripped)
+            try:
+                first_bytes = bytes.fromhex(values.get("first", ""))
+            except ValueError:
+                first_bytes = b""
+            tf.edge_models.append(EdgeModelEvent(
+                phase=values.get("phase", ""),
+                first_edge_us=int(values.get("first_edge_us", "0")),
+                edges=int(values.get("edges", "0")),
+                rx_bits=int(values.get("rx_bits", "0")),
+                first_bytes=first_bytes,
+                ttf_score=int(values.get("ttf_score", "0")),
+                low_entropy=int(values.get("low_entropy", "0")),
+                clock_guess=values.get("clock_guess", "unknown"),
+                classification=values.get("classification", "no_activity"),
+            ))
+            continue
+
+        if stripped.startswith("WRITE_RESULT "):
+            tf.write_results.append(stripped)
             continue
 
         if stripped.startswith("PROTO_MODE:"):
@@ -950,6 +1070,26 @@ def generate_report(tf: TraceFile, show_edges: bool = False, redecode: bool = Fa
             proto_line += f" select_bits={tf.select_expected_bits} crc={tf.select_crc or '?'}"
         lines.append(proto_line)
     lines.append("")
+
+    if tf.edge_models:
+        lines.append("-" * 40)
+        lines.append("Edge Model Events")
+        lines.append("-" * 40)
+        for event in tf.edge_models:
+            first = event.first_bytes.hex().upper() if event.first_bytes else "-"
+            lines.append(
+                f"phase={event.phase or '-'} first_edge_us={event.first_edge_us} "
+                f"edges={event.edges} rx_bits={event.rx_bits} first={first} "
+                f"ttf_score={event.ttf_score} low_entropy={event.low_entropy} "
+                f"clock_guess={event.clock_guess} classification={event.classification}")
+        lines.append("")
+
+    if tf.write_results:
+        lines.append("-" * 40)
+        lines.append("Write Results")
+        lines.append("-" * 40)
+        lines.extend(tf.write_results)
+        lines.append("")
 
     # Transaction analysis
     lines.append("-" * 40)

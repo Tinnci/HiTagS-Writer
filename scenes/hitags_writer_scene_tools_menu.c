@@ -9,6 +9,13 @@ typedef enum {
     ToolsMenuIndexWipe,
     ToolsMenuIndexHtuProbe,
     ToolsMenuIndexDebug,
+    ToolsMenuIndexTtfTiming,
+    ToolsMenuIndexDisturb,
+    ToolsMenuIndexLateDisturb,
+    ToolsMenuIndexLateCommand,
+    ToolsMenuIndexT5577Detect,
+    ToolsMenuIndexEm4x05Detect,
+    ToolsMenuIndexWriteStimulus,
     ToolsMenuIndexAbout,
 } ToolsMenuIndex;
 
@@ -27,6 +34,49 @@ void hitags_writer_scene_tools_menu_on_enter(void* context) {
         submenu, "HTU Probe", ToolsMenuIndexHtuProbe, hitags_writer_scene_tools_menu_callback, app);
     submenu_add_item(
         submenu, "Debug Read", ToolsMenuIndexDebug, hitags_writer_scene_tools_menu_callback, app);
+    submenu_add_item(
+        submenu,
+        "TTF Timing",
+        ToolsMenuIndexTtfTiming,
+        hitags_writer_scene_tools_menu_callback,
+        app);
+    submenu_add_item(
+        submenu,
+        "Disturb Test",
+        ToolsMenuIndexDisturb,
+        hitags_writer_scene_tools_menu_callback,
+        app);
+    submenu_add_item(
+        submenu,
+        "Late Disturb",
+        ToolsMenuIndexLateDisturb,
+        hitags_writer_scene_tools_menu_callback,
+        app);
+    submenu_add_item(
+        submenu,
+        "Late Command",
+        ToolsMenuIndexLateCommand,
+        hitags_writer_scene_tools_menu_callback,
+        app);
+    submenu_add_item(
+        submenu,
+        "T5577 Detect",
+        ToolsMenuIndexT5577Detect,
+        hitags_writer_scene_tools_menu_callback,
+        app);
+    submenu_add_item(
+        submenu,
+        "EM4x05 Detect",
+        ToolsMenuIndexEm4x05Detect,
+        hitags_writer_scene_tools_menu_callback,
+        app);
+    /* Former label: "Write Stimulus"; kept as Write Matrix for result-oriented verification. */
+    submenu_add_item(
+        submenu,
+        "Write Matrix",
+        ToolsMenuIndexWriteStimulus,
+        hitags_writer_scene_tools_menu_callback,
+        app);
     submenu_add_item(
         submenu, "About", ToolsMenuIndexAbout, hitags_writer_scene_tools_menu_callback, app);
 
@@ -48,6 +98,35 @@ bool hitags_writer_scene_tools_menu_on_event(void* context, SceneManagerEvent ev
             scene_manager_next_scene(app->scene_manager, HitagSSceneHtuProbe);
             consumed = true;
         } else if(event.event == ToolsMenuIndexDebug) {
+            app->debug_tool = HitagSDebugToolRead;
+            scene_manager_next_scene(app->scene_manager, HitagSSceneDebugRead);
+            consumed = true;
+        } else if(event.event == ToolsMenuIndexTtfTiming) {
+            app->debug_tool = HitagSDebugToolTtfTiming;
+            scene_manager_next_scene(app->scene_manager, HitagSSceneDebugRead);
+            consumed = true;
+        } else if(event.event == ToolsMenuIndexDisturb) {
+            app->debug_tool = HitagSDebugToolDisturb;
+            scene_manager_next_scene(app->scene_manager, HitagSSceneDebugRead);
+            consumed = true;
+        } else if(event.event == ToolsMenuIndexLateDisturb) {
+            app->debug_tool = HitagSDebugToolLateDisturb;
+            scene_manager_next_scene(app->scene_manager, HitagSSceneDebugRead);
+            consumed = true;
+        } else if(event.event == ToolsMenuIndexLateCommand) {
+            app->debug_tool = HitagSDebugToolLateCommand;
+            scene_manager_next_scene(app->scene_manager, HitagSSceneDebugRead);
+            consumed = true;
+        } else if(event.event == ToolsMenuIndexT5577Detect) {
+            app->debug_tool = HitagSDebugToolT5577Detect;
+            scene_manager_next_scene(app->scene_manager, HitagSSceneDebugRead);
+            consumed = true;
+        } else if(event.event == ToolsMenuIndexEm4x05Detect) {
+            app->debug_tool = HitagSDebugToolEm4x05Detect;
+            scene_manager_next_scene(app->scene_manager, HitagSSceneDebugRead);
+            consumed = true;
+        } else if(event.event == ToolsMenuIndexWriteStimulus) {
+            app->debug_tool = HitagSDebugToolWriteStimulusVerify;
             scene_manager_next_scene(app->scene_manager, HitagSSceneDebugRead);
             consumed = true;
         } else if(event.event == ToolsMenuIndexAbout) {

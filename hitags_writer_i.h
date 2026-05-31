@@ -105,8 +105,26 @@ typedef enum {
     HitagSWorkerCloneDump, /* Write loaded dump to tag (UID + config + data) */
     HitagSWorkerWipeTag, /* Wipe tag to factory defaults */
     HitagSWorkerDebugRead, /* Debug read: full read with RF trace capture */
+    HitagSWorkerTtfTiming, /* Passive TTF timing sweep */
+    HitagSWorkerDisturbTest, /* Early pause/disturb matrix */
+    HitagSWorkerLateDisturbTest, /* Disturb near observed TTF first-frame window */
+    HitagSWorkerLateCommandTest, /* UID commands near observed TTF first-frame window */
+    HitagSWorkerT5577Detect, /* T5577 direct-access/read-block diagnostic */
+    HitagSWorkerEm4x05Detect, /* EM4305/EM4x05 command-response diagnostic */
+    HitagSWorkerWriteStimulusVerify, /* Mutating T5577 write stimulus with restore */
     HitagSWorkerHtuProbe, /* Hitag µ/8265 READ UID probe */
 } HitagSWorkerOp;
+
+typedef enum {
+    HitagSDebugToolRead,
+    HitagSDebugToolTtfTiming,
+    HitagSDebugToolDisturb,
+    HitagSDebugToolLateDisturb,
+    HitagSDebugToolLateCommand,
+    HitagSDebugToolT5577Detect,
+    HitagSDebugToolEm4x05Detect,
+    HitagSDebugToolWriteStimulusVerify,
+} HitagSDebugTool;
 
 /* --- Main App Structure --- */
 typedef struct HitagSApp HitagSApp;
@@ -167,6 +185,7 @@ struct HitagSApp {
     void* debug_trace; /**< FuriString* trace buffer from debug read (void* to avoid include) */
     HitagSMode debug_mode; /**< Protocol mode selected by Debug Read */
     const char* debug_stage; /**< Last Debug Read stage for partial UI */
+    HitagSDebugTool debug_tool; /**< Selected RF diagnostic under the Debug Read scene */
     HitagHtuProbeInfo htu_probe; /**< Last Hitag µ/8265 probe result */
 
     /* Text buffers */

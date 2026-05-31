@@ -14,13 +14,118 @@
 #define HITAGS_TRACE_EXTENSION ".htsd"
 
 typedef enum {
+    DebugReadStateConfirm,
+    DebugReadStateRiskConfirm,
     DebugReadStateScanning,
     DebugReadStateSuccess,
     DebugReadStatePartial,
     DebugReadStateFailed,
 } DebugReadState;
 
+static void hitags_writer_scene_debug_read_confirm_callback(DialogExResult result, void* context) {
+    HitagSApp* app = context;
+    view_dispatcher_send_custom_event(app->view_dispatcher, result);
+}
+
+static HitagSWorkerOp hitags_writer_scene_debug_read_worker_op(HitagSApp* app) {
+    switch(app->debug_tool) {
+    case HitagSDebugToolTtfTiming:
+        return HitagSWorkerTtfTiming;
+    case HitagSDebugToolDisturb:
+        return HitagSWorkerDisturbTest;
+    case HitagSDebugToolLateDisturb:
+        return HitagSWorkerLateDisturbTest;
+    case HitagSDebugToolLateCommand:
+        return HitagSWorkerLateCommandTest;
+    case HitagSDebugToolT5577Detect:
+        return HitagSWorkerT5577Detect;
+    case HitagSDebugToolEm4x05Detect:
+        return HitagSWorkerEm4x05Detect;
+    case HitagSDebugToolWriteStimulusVerify:
+        return HitagSWorkerWriteStimulusVerify;
+    case HitagSDebugToolRead:
+    default:
+        return HitagSWorkerDebugRead;
+    }
+}
+
+static const char* hitags_writer_scene_debug_read_title(HitagSApp* app) {
+    switch(app->debug_tool) {
+    case HitagSDebugToolTtfTiming:
+        return "TTF Timing";
+    case HitagSDebugToolDisturb:
+        return "Disturb Test";
+    case HitagSDebugToolLateDisturb:
+        return "Late Disturb";
+    case HitagSDebugToolLateCommand:
+        return "Late Command";
+    case HitagSDebugToolT5577Detect:
+        return "T5577 Detect";
+    case HitagSDebugToolEm4x05Detect:
+        return "EM4x05 Detect";
+    case HitagSDebugToolWriteStimulusVerify:
+        /* Former label: "Write Stimulus". */
+        return "Write Matrix";
+    case HitagSDebugToolRead:
+    default:
+        return "Debug Read";
+    }
+}
+
+static const char* hitags_writer_scene_debug_read_scanning_text(HitagSApp* app) {
+    switch(app->debug_tool) {
+    case HitagSDebugToolTtfTiming:
+        return "Measuring TTF\nfirst edges";
+    case HitagSDebugToolDisturb:
+        return "Sweeping early\npause patterns";
+    case HitagSDebugToolLateDisturb:
+        return "Sweeping late\npause patterns";
+    case HitagSDebugToolLateCommand:
+        return "Sweeping late\nUID commands";
+    case HitagSDebugToolT5577Detect:
+        return "Reading T5577\nblock 0";
+    case HitagSDebugToolEm4x05Detect:
+        return "Probing EM4x05\ncommands";
+    case HitagSDebugToolWriteStimulusVerify:
+        return "Write matrix\nthen restore";
+    case HitagSDebugToolRead:
+    default:
+        return "Reading with\ntrace capture";
+    }
+}
+
 static const char* hitags_writer_scene_debug_read_status_text(HitagSApp* app) {
+    if(app->debug_stage && strcmp(app->debug_stage, "NOISE") == 0) {
+        return "Noise/TTF Only\nTrace ready";
+    }
+    if(app->debug_stage && strcmp(app->debug_stage, "TTF_TIMING") == 0) {
+        return "TTF timing\nTrace ready";
+    }
+    if(app->debug_stage && strcmp(app->debug_stage, "DISTURB") == 0) {
+        return "Disturb matrix\nTrace ready";
+    }
+    if(app->debug_stage && strcmp(app->debug_stage, "LATE_DISTURB") == 0) {
+        return "Late disturb\nTrace ready";
+    }
+    if(app->debug_stage && strcmp(app->debug_stage, "LATE_COMMAND") == 0) {
+        return "Late command\nTrace ready";
+    }
+    if(app->debug_stage && strcmp(app->debug_stage, "T5577_DETECT") == 0) {
+        return "T5577 detect\nTrace ready";
+    }
+    if(app->debug_stage && strcmp(app->debug_stage, "EM4X05_DETECT") == 0) {
+        return "EM4x05 detect\nTrace ready";
+    }
+    if(app->debug_stage && strcmp(app->debug_stage, "WRITE_MATRIX") == 0) {
+        return "Write matrix\nTrace ready";
+    }
+    if(app->debug_stage && strcmp(app->debug_stage, "WRITE_STIM") == 0) {
+        return "Write stimulus\nTrace ready";
+    }
+    if(app->debug_stage && strcmp(app->debug_stage, "WRITE_STIM_RESTORE_FAILED") == 0) {
+        return "Restore failed\nTrace ready";
+    }
+
     if(app->tag_uid == 0) {
         return "No UID yet\nTrace ready";
     }
@@ -63,9 +168,43 @@ static const char* hitags_writer_scene_debug_read_status_text(HitagSApp* app) {
 
 static const char* hitags_writer_scene_debug_read_failed_text(HitagSApp* app) {
     if(app->debug_stage && strcmp(app->debug_stage, "NOISE") == 0) {
-        return "Noise Only\nSave disabled.";
+        return "Noise/TTF Only\nTrace failed.";
     }
     return "No valid UID\nSave disabled.";
+}
+
+static void hitags_writer_scene_debug_read_start_worker(HitagSApp* app) {
+    Popup* popup = app->popup;
+    popup_reset(popup);
+    popup_set_header(
+        popup, hitags_writer_scene_debug_read_title(app), 89, 30, AlignCenter, AlignTop);
+    popup_set_text(
+        popup, hitags_writer_scene_debug_read_scanning_text(app), 89, 43, AlignCenter, AlignTop);
+    popup_set_icon(popup, 0, 3, &I_NFC_manual_60x50);
+
+    view_dispatcher_switch_to_view(app->view_dispatcher, HitagSViewPopup);
+    notification_message(app->notifications, &sequence_blink_start_magenta);
+
+    scene_manager_set_scene_state(
+        app->scene_manager, HitagSSceneDebugRead, DebugReadStateScanning);
+    hitags_writer_worker_start(app, hitags_writer_scene_debug_read_worker_op(app));
+}
+
+static void hitags_writer_scene_debug_read_show_write_risk_confirm(HitagSApp* app) {
+    DialogEx* dialog = app->dialog_ex;
+    dialog_ex_reset(dialog);
+    dialog_ex_set_header(dialog, "Write Matrix", 64, 0, AlignCenter, AlignTop);
+    dialog_ex_set_text(
+        dialog, "This changes card\nwrites temp ID\nthen restores", 64, 14, AlignCenter, AlignTop);
+    dialog_ex_set_icon(dialog, 0, 12, &I_NFC_manual_60x50);
+    dialog_ex_set_left_button_text(dialog, "Cancel");
+    dialog_ex_set_right_button_text(dialog, "Run");
+    dialog_ex_set_result_callback(dialog, hitags_writer_scene_debug_read_confirm_callback);
+    dialog_ex_set_context(dialog, app);
+
+    scene_manager_set_scene_state(
+        app->scene_manager, HitagSSceneDebugRead, DebugReadStateRiskConfirm);
+    view_dispatcher_switch_to_view(app->view_dispatcher, HitagSViewDialogEx);
 }
 
 static void hitags_writer_scene_debug_read_save_trace(HitagSApp* app) {
@@ -123,18 +262,25 @@ static void hitags_writer_scene_debug_read_save_trace(HitagSApp* app) {
 
 void hitags_writer_scene_debug_read_on_enter(void* context) {
     HitagSApp* app = context;
-    Popup* popup = app->popup;
 
-    popup_set_header(popup, "Debug Read", 89, 30, AlignCenter, AlignTop);
-    popup_set_text(popup, "Reading with\ntrace capture", 89, 43, AlignCenter, AlignTop);
-    popup_set_icon(popup, 0, 3, &I_NFC_manual_60x50);
+    if(app->debug_tool == HitagSDebugToolWriteStimulusVerify) {
+        DialogEx* dialog = app->dialog_ex;
+        dialog_ex_reset(dialog);
+        dialog_ex_set_header(dialog, "Write Matrix", 64, 0, AlignCenter, AlignTop);
+        dialog_ex_set_text(
+            dialog, "Baseline + detect\nNo write yet", 64, 14, AlignCenter, AlignTop);
+        dialog_ex_set_icon(dialog, 0, 12, &I_NFC_manual_60x50);
+        dialog_ex_set_left_button_text(dialog, "Cancel");
+        dialog_ex_set_right_button_text(dialog, "Next");
+        dialog_ex_set_result_callback(dialog, hitags_writer_scene_debug_read_confirm_callback);
+        dialog_ex_set_context(dialog, app);
 
-    view_dispatcher_switch_to_view(app->view_dispatcher, HitagSViewPopup);
-    notification_message(app->notifications, &sequence_blink_start_magenta);
-
-    scene_manager_set_scene_state(
-        app->scene_manager, HitagSSceneDebugRead, DebugReadStateScanning);
-    hitags_writer_worker_start(app, HitagSWorkerDebugRead);
+        scene_manager_set_scene_state(
+            app->scene_manager, HitagSSceneDebugRead, DebugReadStateConfirm);
+        view_dispatcher_switch_to_view(app->view_dispatcher, HitagSViewDialogEx);
+    } else {
+        hitags_writer_scene_debug_read_start_worker(app);
+    }
 }
 
 bool hitags_writer_scene_debug_read_on_event(void* context, SceneManagerEvent event) {
@@ -239,7 +385,23 @@ bool hitags_writer_scene_debug_read_on_event(void* context, SceneManagerEvent ev
             view_dispatcher_switch_to_view(app->view_dispatcher, HitagSViewWidget);
             consumed = true;
 
-        } else if(event.event == GuiButtonTypeLeft) {
+        } else if(
+            state == DebugReadStateConfirm && event.event == DialogExResultRight &&
+            app->debug_tool == HitagSDebugToolWriteStimulusVerify) {
+            hitags_writer_scene_debug_read_show_write_risk_confirm(app);
+            consumed = true;
+
+        } else if(
+            (state == DebugReadStateConfirm || state == DebugReadStateRiskConfirm) &&
+            event.event == DialogExResultRight) {
+            dialog_ex_reset(app->dialog_ex);
+            hitags_writer_scene_debug_read_start_worker(app);
+            consumed = true;
+
+        } else if(
+            ((state == DebugReadStateConfirm || state == DebugReadStateRiskConfirm) &&
+             event.event == DialogExResultLeft) ||
+            event.event == GuiButtonTypeLeft) {
             scene_manager_previous_scene(app->scene_manager);
             consumed = true;
 
@@ -253,16 +415,7 @@ bool hitags_writer_scene_debug_read_on_event(void* context, SceneManagerEvent ev
             (state == DebugReadStateFailed || state == DebugReadStatePartial)) {
             /* Retry */
             widget_reset(app->widget);
-            Popup* popup = app->popup;
-            popup_reset(popup);
-            popup_set_header(popup, "Debug Read", 89, 30, AlignCenter, AlignTop);
-            popup_set_text(popup, "Reading with\ntrace capture", 89, 43, AlignCenter, AlignTop);
-            popup_set_icon(popup, 0, 3, &I_NFC_manual_60x50);
-            scene_manager_set_scene_state(
-                app->scene_manager, HitagSSceneDebugRead, DebugReadStateScanning);
-            view_dispatcher_switch_to_view(app->view_dispatcher, HitagSViewPopup);
-            notification_message(app->notifications, &sequence_blink_start_magenta);
-            hitags_writer_worker_start(app, HitagSWorkerDebugRead);
+            hitags_writer_scene_debug_read_start_worker(app);
             consumed = true;
 
         } else if(event.event == HitagSEventPopupClosed) {
@@ -284,5 +437,6 @@ void hitags_writer_scene_debug_read_on_exit(void* context) {
     hitags_writer_worker_stop(app);
     notification_message(app->notifications, &sequence_blink_stop);
     popup_reset(app->popup);
+    dialog_ex_reset(app->dialog_ex);
     widget_reset(app->widget);
 }

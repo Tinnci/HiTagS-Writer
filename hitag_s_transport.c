@@ -6,6 +6,7 @@
 #include "hitag_s_proto.h"
 #include <furi.h>
 #include <furi_hal.h>
+#include <furi_hal_bus.h>
 
 static bool hitag_s_field_active = false;
 
@@ -108,15 +109,30 @@ void hitag_s_field_on(void) {
 }
 
 void hitag_s_field_off(void) {
-    if(hitag_s_field_active) {
+    if(furi_hal_bus_is_enabled(FuriHalBusTIM1)) {
         furi_hal_rfid_tim_read_stop();
-        furi_hal_rfid_pins_reset();
-        hitag_s_field_active = false;
     }
+    furi_hal_rfid_pins_reset();
+    hitag_s_field_active = false;
+}
+
+void hitag_s_field_reset_hard(uint32_t off_ms) {
+    if(furi_hal_bus_is_enabled(FuriHalBusTIM1)) {
+        furi_hal_rfid_tim_read_stop();
+    }
+    furi_hal_rfid_pins_reset();
+    hitag_s_field_active = false;
+    furi_delay_ms(off_ms);
 }
 
 void hitag_s_field_on_no_wait(void) {
     furi_hal_rfid_tim_read_start(125000, 0.5f);
     furi_hal_rfid_pin_pull_release();
     hitag_s_field_active = true;
+}
+
+void hitag_s_send_pause_us(uint32_t pause_us) {
+    furi_hal_rfid_tim_read_pause();
+    furi_delay_us(pause_us);
+    furi_hal_rfid_tim_read_continue();
 }

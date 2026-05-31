@@ -17,6 +17,61 @@ def ac2k_zero_start01_edge_text(periods: int = 31) -> str:
 
 
 class AnalyzeTraceTests(unittest.TestCase):
+    def test_edge_model_classifies_ttf_noise_no_activity_and_command_response(self):
+        stable_ttf = analyze_trace.classify_edge_model(
+            first_edge_us=10400,
+            edges=64,
+            rx_bits=64,
+            first_bytes=bytes.fromhex("AA55AA55"),
+        )
+        shifted_ttf = analyze_trace.classify_edge_model(
+            first_edge_us=10800,
+            edges=64,
+            rx_bits=64,
+            first_bytes=bytes.fromhex("D5555555"),
+        )
+        no_activity = analyze_trace.classify_edge_model(
+            first_edge_us=0,
+            edges=0,
+            rx_bits=0,
+            first_bytes=b"",
+        )
+        short_noise = analyze_trace.classify_edge_model(
+            first_edge_us=120,
+            edges=3,
+            rx_bits=0,
+            first_bytes=b"\x00",
+        )
+        command_response = analyze_trace.classify_edge_model(
+            first_edge_us=430,
+            edges=38,
+            rx_bits=32,
+            first_bytes=bytes.fromhex("E6012345"),
+        )
+
+        self.assertEqual(stable_ttf.classification, "ttf_broadcast")
+        self.assertEqual(stable_ttf.clock_guess, "RF/64")
+        self.assertEqual(shifted_ttf.classification, "ttf_broadcast")
+        self.assertEqual(no_activity.classification, "no_activity")
+        self.assertEqual(short_noise.classification, "partial_noise")
+        self.assertEqual(command_response.classification, "command_response")
+
+    def test_report_includes_edge_model_events_from_trace(self):
+        trace = """=== HiTag S Debug Trace ===
+
+EDGE_MODEL phase=before first_edge_us=10400 edges=64 rx_bits=64 first=AA55AA55 ttf_score=100 low_entropy=0 clock_guess=RF/64 classification=ttf_broadcast
+WRITE_RESULT method=t5577_full classification=write_ignored before=000000204C after=000000204C restored=0
+"""
+
+        parsed = analyze_trace.parse_trace(trace)
+        report = analyze_trace.generate_report(parsed)
+
+        self.assertEqual(len(parsed.edge_models), 1)
+        self.assertIn("Edge Model Events", report)
+        self.assertIn("phase=before", report)
+        self.assertIn("classification=ttf_broadcast", report)
+        self.assertIn("WRITE_RESULT method=t5577_full classification=write_ignored", report)
+
     def test_std_mode_redecode_uses_one_sof_bit(self):
         trace = f"""=== HiTag S Debug Trace ===
 

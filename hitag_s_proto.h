@@ -182,7 +182,7 @@ static inline bool hitag_s_page_locked(const HitagSConfig* cfg, uint8_t page) {
 #define HITAG_S_T_CODE_VIOLATION_CYCLES 36 /* Hitag µ SOF code-violation carrier tail */
 #define HITAG_S_T_WAIT_POWERUP_US       3000 /* Power-up + START_AUTH window margin */
 #define HITAG_S_T_WAIT_SC_US            1600 /* Standard command wait (200 × T0, spec: 90..5000) */
-#define HITAG_S_T_WAIT_FIRST_US         2400 /* Hitag µ first command wait (300 × T0, PM3 T_wfc) */
+#define HITAG_S_T_WAIT_FIRST_US         2400 /* Hitag S/µ first command wait (300 × T0, PM3 T_wfc) */
 #define HITAG_S_T_WAIT_INTER_US         400 /* After RX idle, top up to about T_WAIT_SC before next TX */
 #define HITAG_S_T_WAIT_RESP_US          200 /* Wait for tag response */
 #define HITAG_S_T_RX_IDLE_US            1200 /* Stop receive after response edges go idle */
@@ -243,6 +243,17 @@ typedef struct {
     bool selected;
 } HitagSSessionInfo;
 
+typedef struct {
+    size_t attempts;
+    size_t last_rx_bits;
+    size_t last_edge_count;
+    size_t max_edge_count;
+    uint8_t last_rx[4];
+    bool overflow;
+    bool low_entropy_reject;
+    bool noisy_reject;
+} HitagSUidRequestReport;
+
 typedef enum {
     HitagSPageStatusMissing,
     HitagSPageStatusRead,
@@ -269,6 +280,14 @@ typedef struct {
     const char* failure_stage;
     HitagSPageStatus page_status[HITAG_S_MAX_PAGES];
 } HitagSDebugReadReport;
+
+typedef struct {
+    bool had_activity;
+    uint32_t first_edge_us;
+    uint32_t elapsed_us;
+    size_t edge_count;
+    bool overflow;
+} HitagSPassiveTtfReport;
 
 typedef void (*HitagSRxStartCallback)(void* context);
 
@@ -306,6 +325,11 @@ void hitag_s_send_htu_frame_with_early_rx(
     void* context);
 
 /**
+ * @brief Emit a raw carrier pause for black-box early-window diagnostics
+ */
+void hitag_s_send_pause_us(uint32_t pause_us);
+
+/**
  * @brief Start 125 kHz carrier for Hitag S communication
  */
 void hitag_s_field_on(void);
@@ -325,11 +349,59 @@ void hitag_s_field_on_no_wait(void);
 void hitag_s_field_off(void);
 
 /**
+ * @brief Force LF field off and keep it off for a bounded reset window
+ *
+ * This bypasses the local field-active guard and mirrors the platform LF worker
+ * stop path: stop the read timer, reset RFID pins, then wait. It is used for
+ * tags that must really lose field power before the early mode-switch command.
+ */
+void hitag_s_field_reset_hard(uint32_t off_ms);
+
+/**
  * @brief Build and send UID request (UID_REQ_ADV1, 5 bits)
  * @param uid  Pointer to store 32-bit UID on success
  * @return HitagSResult
  */
 HitagSResult hitag_s_uid_request(uint32_t* uid);
+
+/**
+ * @brief Build and send only the ADV1 UID request used by 82xx/F8268 mode switch
+ * @param uid  Pointer to store 32-bit UID on success
+ * @return HitagSResult
+ */
+HitagSResult hitag_s_uid_request_adv1(uint32_t* uid);
+
+/**
+ * @brief Send one ADV1 UID request for the 82xx/F8268 power-up mode-switch window
+ *
+ * A successful UID is accepted after one clean frame because the following SELECT
+ * verifies it. This avoids wasting the one-shot wake window on repeat UID probes.
+ *
+ * @param uid     Pointer to store 32-bit UID on success
+ * @param report  Optional RX summary for diagnostics
+ * @return HitagSResult
+ */
+HitagSResult hitag_s_uid_request_adv1_once(uint32_t* uid, HitagSUidRequestReport* report);
+
+/**
+ * @brief Send one UID request in a selected protocol mode
+ *
+ * Used by diagnostics to test which UID request is accepted as the first
+ * command inside an early mode-switch window.
+ *
+ * @param mode    Protocol mode to request
+ * @param uid     Pointer to store 32-bit UID on success
+ * @param report  Optional RX summary for diagnostics
+ * @return HitagSResult
+ */
+HitagSResult
+    hitag_s_uid_request_once(HitagSMode mode, uint32_t* uid, HitagSUidRequestReport* report);
+
+HitagSResult hitag_s_uid_request_once_timed(
+    HitagSMode mode,
+    uint32_t* uid,
+    HitagSUidRequestReport* report,
+    uint32_t rx_timeout_us);
 
 /**
  * @brief Build and send SELECT command
@@ -346,6 +418,41 @@ HitagSResult hitag_s_open_session(HitagSSessionInfo* session);
 HitagSResult hitag_htu_probe_uid(HitagHtuProbeInfo* info);
 
 HitagSResult hitag_htu_probe_uid_sequence(HitagHtuProbeInfo* info);
+
+/**
+ * @brief Capture passive TTF activity for a bounded listen window
+ */
+HitagSResult hitag_s_capture_passive_ttf(uint32_t listen_us, HitagSPassiveTtfReport* report);
+
+/**
+ * @brief Black-box reset sweep that records TTF first-edge timing
+ */
+HitagSResult hitag_s_8268_ttf_timing_diagnostic(void);
+
+/**
+ * @brief Black-box early pause matrix that records whether TTF is disturbed
+ */
+HitagSResult hitag_s_8268_disturb_diagnostic(void);
+
+/**
+ * @brief Black-box late pause matrix near the observed TTF first-frame window
+ */
+HitagSResult hitag_s_8268_late_disturb_diagnostic(void);
+
+/**
+ * @brief UID command matrix near the observed TTF first-frame window
+ */
+HitagSResult hitag_s_8268_late_command_diagnostic(void);
+
+/**
+ * @brief T5577 direct-access/read-block diagnostic with raw response trace
+ */
+HitagSResult hitag_s_t5577_detect_diagnostic(void);
+
+/**
+ * @brief EM4305/EM4x05 command-response diagnostic with raw response trace
+ */
+HitagSResult hitag_s_em4x05_detect_diagnostic(void);
 
 /**
  * @brief Authenticate to 8268 chip by writing password to page 64
