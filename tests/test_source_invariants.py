@@ -420,6 +420,9 @@ class SourceInvariantTests(unittest.TestCase):
         self.assertIn("hitag_s_field_on_no_wait", header)
         self.assertIn("void hitag_s_field_on_no_wait", transport)
         self.assertIn("HITAG_HTU_WAKE_DELAYS_US", session)
+        self.assertIn("HITAG_HTU_FIELD_RESET_MS", session)
+        self.assertIn("HITAG_S_T_WAIT_FIRST_US - (100U * HITAG_S_T0_US)", session)
+        self.assertIn("HITAG_S_T_WAIT_FIRST_US + (50U * HITAG_S_T0_US)", session)
         self.assertIn("HITAG_S_T_WAIT_FIRST_US", sequence)
         self.assertIn("hitag_s_field_on_no_wait()", sequence)
         self.assertIn("if(field_started)", sequence)
@@ -433,6 +436,16 @@ class SourceInvariantTests(unittest.TestCase):
         self.assertIn("if(hitag_s_field_active)", transport)
         self.assertIn("hitag_s_field_active = true", transport)
         self.assertIn("hitag_s_field_active = false", transport)
+
+    def test_htu_ttf_classification_is_sticky_across_candidates(self):
+        source = (ROOT / "hitag_s_session.c").read_text()
+        candidate = source.split("static bool hitag_htu_try_raw_candidate", 1)[1].split(
+            "typedef struct {",
+            1,
+        )[0]
+
+        self.assertIn("bool ttf_like", candidate)
+        self.assertIn("info->ttf_broadcast |= ttf_like", candidate)
 
     def test_tools_menu_has_dedicated_htu_probe_entry(self):
         config = (ROOT / "scenes/hitags_writer_scene_config.h").read_text()

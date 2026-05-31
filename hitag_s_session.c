@@ -54,15 +54,18 @@ static void trace_append(const char* fmt, ...) {
 #define HITAG_HTU_RESPONSE_BITS         65
 #define HITAG_HTU_MAX_CANDIDATE_BITS    96
 #define HITAG_HTU_TRACE_CANDIDATE_LIMIT 24
-#define HITAG_HTU_FIELD_RESET_US        6000
+#define HITAG_HTU_FIELD_RESET_MS        6
 
 static const uint32_t HITAG_HTU_WAKE_DELAYS_US[] = {
+    HITAG_S_T_WAIT_FIRST_US - (100U * HITAG_S_T0_US),
+    HITAG_S_T_WAIT_FIRST_US - (75U * HITAG_S_T0_US),
+    HITAG_S_T_WAIT_FIRST_US - (50U * HITAG_S_T0_US),
+    HITAG_S_T_WAIT_FIRST_US - (25U * HITAG_S_T0_US),
     HITAG_S_T_WAIT_FIRST_US - (20U * HITAG_S_T0_US),
+    HITAG_S_T_WAIT_FIRST_US - (10U * HITAG_S_T0_US),
     HITAG_S_T_WAIT_FIRST_US,
     HITAG_S_T_WAIT_FIRST_US + (20U * HITAG_S_T0_US),
     HITAG_S_T_WAIT_FIRST_US + (50U * HITAG_S_T0_US),
-    HITAG_S_T_WAIT_FIRST_US + (100U * HITAG_S_T0_US),
-    HITAG_S_T_WAIT_FIRST_US + (200U * HITAG_S_T0_US),
 };
 
 /* Edge capture context */
@@ -513,11 +516,12 @@ static bool hitag_htu_try_raw_candidate(
             }
 
             hitag_htu_probe_note_candidate(info, method, bits, residue);
+            bool ttf_like = hitag_htu_codec_is_ttf_broadcast_candidate(candidate, bits);
+            if(info) info->ttf_broadcast |= ttf_like;
             if(info && info->method == method && info->response_bits == bits) {
                 info->best_prefix[0] = candidate[0];
                 info->best_prefix[1] = candidate[1];
                 info->best_prefix[2] = candidate[2];
-                info->ttf_broadcast = hitag_htu_codec_is_ttf_broadcast_candidate(candidate, bits);
             }
             if(hitag_htu_codec_decode_uid_response(candidate, bits, uid)) {
                 if(info) {
@@ -1037,13 +1041,13 @@ HitagSResult hitag_htu_probe_uid_sequence(HitagHtuProbeInfo* info) {
             "HTU wake prep %d/%d reset_us=%lu",
             (int)(i + 1),
             (int)COUNT_OF(HITAG_HTU_WAKE_DELAYS_US),
-            (unsigned long)((i == 0) ? 0U : HITAG_HTU_FIELD_RESET_US));
+            (unsigned long)((i == 0) ? 0U : HITAG_HTU_FIELD_RESET_MS * 1000U));
         if(field_started) {
             hitag_s_field_off();
             field_started = false;
         }
         if(i > 0) {
-            furi_delay_ms(HITAG_HTU_FIELD_RESET_US / 1000U);
+            furi_delay_ms(HITAG_HTU_FIELD_RESET_MS);
         }
 
         FURI_LOG_I(
@@ -1062,7 +1066,7 @@ HitagSResult hitag_htu_probe_uid_sequence(HitagHtuProbeInfo* info) {
             (int)COUNT_OF(HITAG_HTU_WAKE_DELAYS_US),
             (unsigned long)wake_delay_us,
             (unsigned long)HITAG_S_T_WAIT_FIRST_US,
-            (unsigned long)((i == 0) ? 0U : HITAG_HTU_FIELD_RESET_US));
+            (unsigned long)((i == 0) ? 0U : HITAG_HTU_FIELD_RESET_MS * 1000U));
 
         HitagSResult result = hitag_htu_probe_uid(&attempt_info);
         hitag_s_field_off();
