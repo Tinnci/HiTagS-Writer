@@ -51,10 +51,10 @@ static void hitags_writer_scene_htu_probe_show_result(HitagSApp* app, bool ok) {
             snprintf(
                 app->text_store,
                 sizeof(app->text_store),
-                "%s %db\n%d candidates",
+                "%s %db\n%s",
                 app->htu_probe.method ? app->htu_probe.method : "noise",
                 (int)app->htu_probe.response_bits,
-                (int)app->htu_probe.candidates_tried);
+                app->htu_probe.ttf_broadcast ? "TTF broadcast" : "CRC mismatch");
         } else {
             snprintf(app->text_store, sizeof(app->text_store), "No response\nTry again.");
         }

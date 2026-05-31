@@ -498,6 +498,7 @@ static bool hitag_htu_try_raw_candidate(
                 info->best_prefix[0] = candidate[0];
                 info->best_prefix[1] = candidate[1];
                 info->best_prefix[2] = candidate[2];
+                info->ttf_broadcast = hitag_htu_codec_is_ttf_broadcast_candidate(candidate, bits);
             }
             if(hitag_htu_codec_decode_uid_response(candidate, bits, uid)) {
                 if(info) {
@@ -949,23 +950,25 @@ HitagSResult hitag_htu_probe_uid(HitagHtuProbeInfo* info) {
         }
         FURI_LOG_W(
             TAG,
-            "HTU/8265 probe: rejected response best=%s bits=%d candidates=%d crc16=%04X first=%02X %02X %02X",
+            "HTU/8265 probe: rejected response best=%s bits=%d candidates=%d crc16=%04X first=%02X %02X %02X%s",
             best_method,
             (int)best_bits,
             (int)candidates_tried,
             info ? info->best_residue : 0xFFFFU,
             info ? info->best_prefix[0] : 0,
             info ? info->best_prefix[1] : 0,
-            info ? info->best_prefix[2] : 0);
+            info ? info->best_prefix[2] : 0,
+            (info && info->ttf_broadcast) ? " ttf_broadcast" : "");
         trace_append(
-            "  RESULT: HTU READ UID response rejected best=%s bits=%d candidates=%d crc16=%04X first=%02X %02X %02X\n",
+            "  RESULT: HTU READ UID response rejected best=%s bits=%d candidates=%d crc16=%04X first=%02X %02X %02X%s\n",
             best_method,
             (int)best_bits,
             (int)candidates_tried,
             info ? info->best_residue : 0xFFFFU,
             info ? info->best_prefix[0] : 0,
             info ? info->best_prefix[1] : 0,
-            info ? info->best_prefix[2] : 0);
+            info ? info->best_prefix[2] : 0,
+            (info && info->ttf_broadcast) ? " ttf_broadcast" : "");
         return HitagSResultCrcError;
     }
 

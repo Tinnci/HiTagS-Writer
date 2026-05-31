@@ -51,6 +51,8 @@ bool hitag_htu_codec_decode_uid_response(
     size_t rx_bits,
     uint8_t uid[HITAG_HTU_UID_SIZE]);
 
+bool hitag_htu_codec_is_ttf_broadcast_candidate(const uint8_t* rx, size_t rx_bits);
+
 uint8_t hitag_s_codec_build_select_frame(uint8_t* buf, size_t* bits, uint32_t uid);
 
 size_t hitag_s_codec_uid_variants(uint32_t uid, HitagSUidVariant* variants, size_t max_variants);

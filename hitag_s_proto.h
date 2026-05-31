@@ -253,6 +253,7 @@ typedef struct {
     bool detected;
     bool had_activity;
     bool crc_ok;
+    bool ttf_broadcast;
     uint8_t uid[HITAG_HTU_UID_SIZE];
     uint8_t best_prefix[3];
     size_t response_bits;

@@ -168,6 +168,16 @@ static void test_htu_uid_response_accepts_64_bit_uid_crc_variant(void) {
     }
 }
 
+static void test_htu_ttf_broadcast_candidate_detects_alternating_clock_pattern(void) {
+    const uint8_t ttf_like[8] = {0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55};
+    const uint8_t inverted_ttf_like[8] = {0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA};
+    const uint8_t uid_like[8] = {0x00, 0x00, 0x00, 0x20, 0x4C, 0x00, 0x8F, 0xAE};
+
+    assert(hitag_htu_codec_is_ttf_broadcast_candidate(ttf_like, 64));
+    assert(hitag_htu_codec_is_ttf_broadcast_candidate(inverted_ttf_like, 64));
+    assert(!hitag_htu_codec_is_ttf_broadcast_candidate(uid_like, 64));
+}
+
 int main(void) {
     test_ac2k_uid_quality_rejects_long_gap_noise();
     test_valid_uid_capture_requires_32_bits_and_clean_quality();
@@ -177,5 +187,6 @@ int main(void) {
     test_htu_uid_response_requires_crc16_residue_and_extracts_48_bit_uid();
     test_htu_uid_response_accepts_8265_missing_error_flag_variant();
     test_htu_uid_response_accepts_64_bit_uid_crc_variant();
+    test_htu_ttf_broadcast_candidate_detects_alternating_clock_pattern();
     return 0;
 }

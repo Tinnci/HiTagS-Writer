@@ -185,6 +185,28 @@ bool hitag_htu_codec_decode_uid_response(
     return false;
 }
 
+bool hitag_htu_codec_is_ttf_broadcast_candidate(const uint8_t* rx, size_t rx_bits) {
+    if(rx_bits < 32) return false;
+
+    size_t sample_bits = rx_bits < 64 ? rx_bits : 64;
+    size_t transitions = 0;
+    size_t same = 0;
+    bool prev = hitag_s_codec_get_bit(rx, 0);
+    for(size_t i = 1; i < sample_bits; i++) {
+        bool bit = hitag_s_codec_get_bit(rx, i);
+        if(bit != prev) {
+            transitions++;
+        } else {
+            same++;
+        }
+        prev = bit;
+    }
+
+    /* A decoded HTU UID frame should not be a near-perfect clock pattern. 0x55/0xAA
+     * runs are usually EM4100/TTF broadcast or idle modulation decoded as data. */
+    return transitions >= ((sample_bits - 1) * 9) / 10 && same <= sample_bits / 16;
+}
+
 uint8_t hitag_s_codec_build_select_frame(uint8_t* buf, size_t* bits, uint32_t uid) {
     *bits = 0;
     hitag_s_codec_pack_bits(buf, bits, 0x00, 5);
