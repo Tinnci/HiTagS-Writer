@@ -187,7 +187,7 @@ static size_t hitag_s_decode_ac2k(
     return data_bits;
 }
 
-static bool hitag_s_capture_has_excessive_glitches(const HitagSCapture* cap) {
+static HitagSAc2kQuality hitag_s_capture_ac2k_quality(const HitagSCapture* cap) {
     HitagSAc2kQuality quality = {0};
     size_t edge_count = cap->edge_count < HITAG_S_MAX_EDGES ? cap->edge_count : HITAG_S_MAX_EDGES;
 
@@ -195,7 +195,17 @@ static bool hitag_s_capture_has_excessive_glitches(const HitagSCapture* cap) {
         hitag_s_codec_ac2k_quality_add(&quality, cap->levels[i], cap->durations[i]);
     }
 
+    return quality;
+}
+
+static bool hitag_s_capture_has_excessive_glitches(const HitagSCapture* cap) {
+    HitagSAc2kQuality quality = hitag_s_capture_ac2k_quality(cap);
     return quality.too_noisy;
+}
+
+static bool hitag_s_capture_is_marginal_uid_candidate(const HitagSCapture* cap) {
+    HitagSAc2kQuality quality = hitag_s_capture_ac2k_quality(cap);
+    return hitag_s_codec_is_marginal_ac2k_uid_quality(32, &quality);
 }
 
 /**
@@ -423,6 +433,13 @@ static size_t hitag_s_send_receive(
     /* Stop capture */
     furi_hal_rfid_tim_read_capture_stop();
 
+    trace_append(
+        "  RX_META: elapsed_us=%lu idle_us=%lu timeout_us=%lu final_edges=%d\n",
+        (unsigned long)elapsed_us,
+        (unsigned long)idle_us,
+        (unsigned long)rx_timeout_us,
+        (int)hs_capture.edge_count);
+
     if(hs_capture.edge_count == 0) {
         FURI_LOG_D(TAG, "RX: no edges (timeout %lu us)", (unsigned long)rx_timeout_us);
         trace_append("  RX: no edges (timeout %lu us)\n", (unsigned long)rx_timeout_us);
@@ -518,8 +535,8 @@ typedef struct {
 
 static const HitagSProtoMode proto_modes[] = {
     {0x06, "STD", 0, 1, false}, /* UID_REQ_STD (00110): UID response has no extra SOF bit */
-    {0x19, "ADV1", 3, 6, true}, /* UID_REQ_ADV1 (11001): advanced response CRC */
-    {0x18, "ADV2", 3, 6, true}, /* UID_REQ_ADV2 (11000): advanced response CRC */
+    {0x19, "ADV1", 0, 6, true}, /* UID response uses raw 32-bit AC2K UID */
+    {0x18, "ADV2", 0, 6, true}, /* UID response uses raw 32-bit AC2K UID */
 };
 static size_t active_mode_idx = 0;
 
@@ -556,6 +573,8 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
             (unsigned long)hitag_s_codec_bplm_frame_duration_us(cmd, bit_pos));
 
         bool had_decode = false;
+        bool marginal_uid_valid = false;
+        uint32_t marginal_uid = 0;
 
         for(size_t attempt = 0; attempt < 6; attempt++) {
             uint8_t rx[4] = {0};
@@ -566,22 +585,36 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
             size_t rx_bits = hitag_s_send_receive(
                 cmd, 5, rx, 32, HITAG_S_RX_TIMEOUT_UID, HitagSRxAC2K, proto_modes[c].uid_sof);
 
-            if(hitag_s_capture_has_excessive_glitches(&hs_capture)) {
-                had_decode = true;
-                FURI_LOG_W(
-                    TAG,
-                    "%s UID try %d: rejected noisy AC2K capture",
-                    proto_modes[c].name,
-                    (int)(attempt + 1));
-                trace_append("  %s: rejected noisy AC2K capture\n", proto_modes[c].name);
-                furi_delay_us(HITAG_S_T_WAIT_SC_US);
-                continue;
-            }
-
             if(rx_bits == 32) {
                 uint32_t current_uid = ((uint32_t)rx[0] << 24) | ((uint32_t)rx[1] << 16) |
                                        ((uint32_t)rx[2] << 8) | (uint32_t)rx[3];
                 had_decode = true;
+
+                if(hitag_s_capture_has_excessive_glitches(&hs_capture)) {
+                    if(hitag_s_capture_is_marginal_uid_candidate(&hs_capture)) {
+                        marginal_uid = current_uid;
+                        marginal_uid_valid = true;
+                        FURI_LOG_W(
+                            TAG,
+                            "%s UID try %d: keeping marginal noisy AC2K UID %08lX",
+                            proto_modes[c].name,
+                            (int)(attempt + 1),
+                            (unsigned long)marginal_uid);
+                        trace_append(
+                            "  %s: keeping marginal noisy AC2K UID=%08lX\n",
+                            proto_modes[c].name,
+                            (unsigned long)marginal_uid);
+                    } else {
+                        FURI_LOG_W(
+                            TAG,
+                            "%s UID try %d: rejected noisy AC2K capture",
+                            proto_modes[c].name,
+                            (int)(attempt + 1));
+                        trace_append("  %s: rejected noisy AC2K capture\n", proto_modes[c].name);
+                    }
+                    furi_delay_us(HITAG_S_T_WAIT_SC_US);
+                    continue;
+                }
 
                 *uid = current_uid;
                 active_mode_idx = c;
@@ -597,9 +630,34 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
                 return HitagSResultOk;
             } else if(rx_bits > 0) {
                 had_decode = true;
+                if(hitag_s_capture_has_excessive_glitches(&hs_capture)) {
+                    FURI_LOG_W(
+                        TAG,
+                        "%s UID try %d: rejected noisy partial AC2K capture (%d bits)",
+                        proto_modes[c].name,
+                        (int)(attempt + 1),
+                        (int)rx_bits);
+                    trace_append("  %s: rejected noisy AC2K capture\n", proto_modes[c].name);
+                }
             }
 
             furi_delay_us(HITAG_S_T_WAIT_SC_US);
+        }
+
+        if(marginal_uid_valid) {
+            *uid = marginal_uid;
+            active_mode_idx = c;
+            FURI_LOG_W(
+                TAG,
+                "UID: %08lX (via %s mode, marginal noisy AC2K)",
+                (unsigned long)*uid,
+                proto_modes[c].name);
+            trace_append(
+                "  RESULT: OK, UID=%08lX (mode=%s, AC2K, marginal)\n",
+                (unsigned long)*uid,
+                proto_modes[c].name);
+            trace_append("  %s: using marginal noisy AC2K UID\n", proto_modes[c].name);
+            return HitagSResultOk;
         }
 
         if(had_decode) {

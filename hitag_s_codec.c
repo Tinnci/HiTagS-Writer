@@ -143,3 +143,7 @@ bool hitag_s_codec_is_valid_ac2k_uid_capture(
     size_t edge_count) {
     return bits == 32 && !hitag_s_codec_ac2k_quality(edges, edge_count).too_noisy;
 }
+
+bool hitag_s_codec_is_marginal_ac2k_uid_quality(size_t bits, const HitagSAc2kQuality* quality) {
+    return bits == 32 && quality->glitches <= 2 && quality->long_ac_periods <= 1;
+}

@@ -5,6 +5,8 @@
 
 #include "../hitags_writer_i.h"
 
+#define TAG "HitagSReadEM"
+
 static const NotificationSequence sequence_blink_set_yellow = {
     &message_blink_set_color_yellow,
     NULL,
@@ -26,6 +28,8 @@ static void hitags_writer_lfrfid_read_callback(
     void* context) {
     HitagSApp* app = context;
     uint32_t event = 0;
+
+    FURI_LOG_D(TAG, "LF RFID callback: result=%d protocol=%d", (int)result, (int)protocol);
 
     if(result == LFRFIDWorkerReadSenseStart) {
         event = HitagSEventLfReadSenseStart;
@@ -57,6 +61,7 @@ void hitags_writer_scene_read_em4100_on_enter(void* context) {
     popup_set_text(popup, "ASK/PSK auto\nscan", 89, 43, AlignCenter, AlignTop);
     popup_set_icon(popup, 0, 3, &I_NFC_manual_60x50);
 
+    FURI_LOG_I(TAG, "Read EM4100: start official LF RFID worker (auto)");
     app->read_type = LFRFIDWorkerReadTypeAuto;
     lfrfid_worker_start_thread(app->lfworker);
     lfrfid_worker_read_start(
@@ -83,13 +88,16 @@ bool hitags_writer_scene_read_em4100_on_event(void* context, SceneManagerEvent e
             notification_message(app->notifications, &sequence_blink_set_cyan);
             consumed = true;
         } else if(event.event == HitagSEventLfReadStartASK) {
+            FURI_LOG_I(TAG, "Read EM4100: switching to ASK");
             popup_set_text(app->popup, "ASK reading...", 89, 43, AlignCenter, AlignTop);
             consumed = true;
         } else if(event.event == HitagSEventLfReadStartPSK) {
+            FURI_LOG_I(TAG, "Read EM4100: switching to PSK");
             popup_set_text(app->popup, "PSK reading...", 89, 43, AlignCenter, AlignTop);
             consumed = true;
         } else if(event.event == HitagSEventLfReadDone) {
             app->protocol_id = app->protocol_id_next;
+            FURI_LOG_I(TAG, "Read EM4100: done protocol=%d", (int)app->protocol_id);
             notification_message(app->notifications, &sequence_success);
             scene_manager_next_scene(app->scene_manager, HitagSSceneReadEm4100Success);
             consumed = true;
@@ -104,6 +112,7 @@ bool hitags_writer_scene_read_em4100_on_event(void* context, SceneManagerEvent e
 
 void hitags_writer_scene_read_em4100_on_exit(void* context) {
     HitagSApp* app = context;
+    FURI_LOG_I(TAG, "Read EM4100: stop official LF RFID worker");
     notification_message(app->notifications, &sequence_blink_stop);
     lfrfid_worker_stop(app->lfworker);
     lfrfid_worker_stop_thread(app->lfworker);

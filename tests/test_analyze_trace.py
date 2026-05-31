@@ -33,6 +33,35 @@ class AnalyzeTraceTests(unittest.TestCase):
         self.assertIn("Re-decode MC4K: 32 bits = 060000E8", report)
         self.assertNotIn("MISMATCH", report)
 
+    def test_mc4k_sweep_reports_better_sof_threshold_candidate(self):
+        trace = f"""=== HiTag S Debug Trace ===
+
+=== DEBUG READ SEQUENCE ===
+Field ON: carrier=125000Hz duty=0.5 pull=release powerup_us=3000
+
+--- UID_REQUEST ---
+  TX: UID_REQ_STD (5 bits, val=0x06)
+  TX_FRAME: frame=30 bits=5 tx_us=1280
+  RESULT: OK, UID=52810231 (mode=STD)
+
+--- SELECT ---
+  TX: SELECT UID=52810231 CRC=6F (45 bits, UID0..UID3)
+  TX_FRAME: frame=02 94 08 11 8B 78 bits=45 tx_us=8512
+  RX: 64 edges mode=MC4K
+  EDGES: {mc4k_edge_text(0x060000E8, sof_bits=0)}
+  DECODE: 31 bits = 0C 00 01 D0
+  RESULT: TIMEOUT (31 bits)
+"""
+
+        parsed = analyze_trace.parse_trace(trace)
+        report = analyze_trace.generate_report(parsed, redecode=True)
+        summary = analyze_trace.generate_batch_summary([("sof0.htsd", parsed)])
+
+        self.assertIn("MC4K sweep: best=32 bits", report)
+        self.assertIn("sof=0", report)
+        self.assertIn("data=", report)
+        self.assertIn("select-decode-sweep", summary)
+
     def test_report_preserves_multiple_tx_lines_in_one_transaction(self):
         trace = """=== HiTag S Debug Trace ===
 
@@ -136,6 +165,25 @@ Field ON: carrier=125000Hz duty=0.5 pull=release powerup_us=3000
         report = analyze_trace.generate_report(parsed)
 
         self.assertIn("tx_frame=30/5b tx_us=1280", report)
+
+    def test_report_includes_rx_window_metadata(self):
+        trace = """=== HiTag S Debug Trace ===
+
+--- UID_REQUEST ---
+  TX: UID_REQ_STD (5 bits, val=0x06)
+  TX_FRAME: frame=30 bits=5 tx_us=1280
+  RX_META: elapsed_us=1500 idle_us=1200 timeout_us=25000 final_edges=4
+  RX: 4 edges mode=AC2K
+  EDGES: L:5 H:25000 L:512 H:2000
+  DECODE: 1 bits = 00
+  RESULT: TIMEOUT (no UID)
+"""
+
+        parsed = analyze_trace.parse_trace(trace)
+        report = analyze_trace.generate_report(parsed)
+
+        self.assertEqual(parsed.transactions[0].captures[0].rx_elapsed_us, 1500)
+        self.assertIn("rx_meta=elapsed:1500us idle:1200us timeout:25000us", report)
 
     def test_uid_request_frames_are_checked_against_model(self):
         trace = """=== HiTag S Debug Trace ===
@@ -262,6 +310,32 @@ Field ON: carrier=125000Hz duty=0.5 pull=release powerup_us=3000
         self.assertIn("SELECT frame matches model but no MC4K response was decoded", report)
         self.assertIn("RF field/coil coupling or response-window timing", report)
 
+    def test_select_partial_response_reports_sweep_still_too_short(self):
+        trace = """=== HiTag S Debug Trace ===
+
+=== DEBUG READ SEQUENCE ===
+Field ON: carrier=125000Hz duty=0.5 pull=release powerup_us=3000
+
+--- UID_REQUEST ---
+  TX: UID_REQ_STD (5 bits, val=0x06)
+  TX_FRAME: frame=30 bits=5 tx_us=1280
+  RESULT: OK, UID=52810231 (mode=STD, AC2K)
+
+--- SELECT ---
+  TX: SELECT UID=52810231 CRC=6F (45 bits, UID0..UID3)
+  TX_FRAME: frame=02 94 08 11 8B 78 bits=45 tx_us=8512
+  RX: 6 edges mode=MC4K
+  EDGES: L:5 H:256 L:128 H:128 L:256 H:14995
+  DECODE: 2 bits = 40
+  RESULT: TIMEOUT (2 bits)
+"""
+
+        parsed = analyze_trace.parse_trace(trace)
+        report = analyze_trace.generate_report(parsed, redecode=True)
+
+        self.assertIn("MC4K sweep still only recovers", report)
+        self.assertIn("response window/RF coupling", report)
+
     def test_batch_summary_highlights_trace_evidence_state(self):
         old_trace = """=== HiTag S Debug Trace ===
 
@@ -306,14 +380,82 @@ Field ON: carrier=125000Hz duty=0.5 pull=release powerup_us=3000
 
         self.assertIn("Batch Summary", summary)
         self.assertIn(
-            "old.htsd | uid=- | accepted=- | field=legacy | uid_tx=legacy | select_tx=legacy",
+            "old.htsd | uid=- | accepted=- | marginal=- | field=legacy | "
+            "uid_tx=legacy | select_tx=legacy",
             summary,
         )
         self.assertIn(
-            "new.htsd | uid=- | accepted=- | field=release | uid_tx=ok | select_tx=ok",
+            "new.htsd | uid=- | accepted=- | marginal=- | field=release | "
+            "uid_tx=ok | select_tx=ok",
             summary,
         )
         self.assertIn("select_bits=0", summary)
+        self.assertIn("legacy-insufficient", summary)
+        self.assertIn("uid-rf-or-window", summary)
+
+    def test_batch_summary_separates_uid_and_select_failure_causes(self):
+        uid_frame_bad = """=== HiTag S Debug Trace ===
+
+=== DEBUG READ SEQUENCE ===
+Field ON: carrier=125000Hz duty=0.5 pull=release powerup_us=3000
+
+--- UID_REQUEST ---
+  TX: UID_REQ_STD (5 bits, val=0x06)
+  TX_FRAME: frame=38 bits=5 tx_us=1280
+  RX: 2 edges mode=AC2K
+  EDGES: L:5 H:25000
+  DECODE: 0 bits
+  RESULT: TIMEOUT (no UID)
+"""
+        select_no_response = """=== HiTag S Debug Trace ===
+
+=== DEBUG READ SEQUENCE ===
+Field ON: carrier=125000Hz duty=0.5 pull=release powerup_us=3000
+
+--- UID_REQUEST ---
+  TX: UID_REQ_STD (5 bits, val=0x06)
+  TX_FRAME: frame=30 bits=5 tx_us=1280
+  RESULT: OK, UID=52810231 (mode=STD, AC2K)
+
+--- SELECT ---
+  TX: SELECT UID=52810231 CRC=6F (45 bits, UID0..UID3)
+  TX_FRAME: frame=02 94 08 11 8B 78 bits=45 tx_us=8512
+  RX: 2 edges mode=MC4K
+  EDGES: L:5 H:14995
+  DECODE: 0 bits
+  RESULT: TIMEOUT (0 bits)
+"""
+        select_partial = """=== HiTag S Debug Trace ===
+
+=== DEBUG READ SEQUENCE ===
+Field ON: carrier=125000Hz duty=0.5 pull=release powerup_us=3000
+
+--- UID_REQUEST ---
+  TX: UID_REQ_STD (5 bits, val=0x06)
+  TX_FRAME: frame=30 bits=5 tx_us=1280
+  RESULT: OK, UID=52810231 (mode=STD, AC2K)
+
+--- SELECT ---
+  TX: SELECT UID=52810231 CRC=6F (45 bits, UID0..UID3)
+  TX_FRAME: frame=02 94 08 11 8B 78 bits=45 tx_us=8512
+  RX: 6 edges mode=MC4K
+  EDGES: L:5 H:256 L:128 H:128 L:256 H:14995
+  DECODE: 2 bits = 40
+  RESULT: TIMEOUT (2 bits)
+"""
+
+        summary = analyze_trace.generate_batch_summary([
+            ("bad_uid.htsd", analyze_trace.parse_trace(uid_frame_bad)),
+            ("select_none.htsd", analyze_trace.parse_trace(select_no_response)),
+            ("select_partial.htsd", analyze_trace.parse_trace(select_partial)),
+        ])
+
+        self.assertIn("bad_uid.htsd", summary)
+        self.assertIn("fix-uid-frame", summary)
+        self.assertIn("select_none.htsd", summary)
+        self.assertIn("select-rf-or-window", summary)
+        self.assertIn("select_partial.htsd", summary)
+        self.assertIn("select-decode-threshold", summary)
 
     def test_trace_replay_recovers_real_ac2k_uid(self):
         trace_path = Path(__file__).resolve().parents[1] / "trace_device_52810231_pm3timing.htsd"
@@ -397,10 +539,9 @@ Field ON: carrier=125000Hz duty=0.5 pull=release powerup_us=3000
                 for cap in txn.captures:
                     if cap.mode != "AC2K":
                         continue
-                    for sof_bits in (0, 3):
-                        bits, data = analyze_trace.decode_ac2k(cap.edges, sof_bits=sof_bits)
-                        if analyze_trace.is_valid_ac2k_uid_capture(bits, cap.edges):
-                            accepted_uids.add(data[:4].hex().upper())
+                    bits, data = analyze_trace.decode_ac2k(cap.edges, sof_bits=0)
+                    if analyze_trace.is_valid_ac2k_uid_capture(bits, cap.edges):
+                        accepted_uids.add(data[:4].hex().upper())
 
             self.assertEqual(accepted_uids, expected_uids, fixture_name)
 
@@ -433,6 +574,21 @@ Field ON: carrier=125000Hz duty=0.5 pull=release powerup_us=3000
                 expected_uids,
                 fixture_name,
             )
+
+    def test_latest_no_uid_trace_keeps_marginal_uid_for_firmware_fallback(self):
+        trace_path = (
+            Path(__file__).resolve().parents[1] /
+            "pulled_traces/flipper_Trace_NoUID_6A1C3A0A_15028b.htsd"
+        )
+        if not trace_path.exists():
+            self.skipTest("latest hardware trace fixture not present")
+
+        parsed = analyze_trace.parse_trace(trace_path.read_text())
+        summary = analyze_trace.generate_batch_summary([(str(trace_path), parsed)])
+
+        self.assertNotIn("52810231", analyze_trace.accepted_uid_candidates(parsed))
+        self.assertIn("52810231", analyze_trace.marginal_uid_candidates(parsed))
+        self.assertIn("uid-marginal-fallback", summary)
 
 
 if __name__ == "__main__":

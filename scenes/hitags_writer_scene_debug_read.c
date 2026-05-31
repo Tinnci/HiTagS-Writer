@@ -44,12 +44,13 @@ static void hitags_writer_scene_debug_read_save_trace(HitagSApp* app) {
 
     FuriString* filename = furi_string_alloc();
     FuriString* basename = furi_string_alloc();
+    uint32_t timestamp = furi_hal_rtc_get_timestamp();
+    if(timestamp == 0) timestamp = furi_get_tick();
     if(app->tag_uid == 0) {
-        uint32_t timestamp = furi_hal_rtc_get_timestamp();
-        if(timestamp == 0) timestamp = furi_get_tick();
         furi_string_printf(basename, "Trace_NoUID_%08lX", (unsigned long)timestamp);
     } else {
-        furi_string_printf(basename, "Trace_%08lX", (unsigned long)app->tag_uid);
+        furi_string_printf(
+            basename, "Trace_%08lX_%08lX", (unsigned long)app->tag_uid, (unsigned long)timestamp);
     }
     furi_string_printf(
         filename,

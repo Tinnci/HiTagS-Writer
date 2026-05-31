@@ -61,6 +61,10 @@ class RxCapture:
     tx_frame: bytes = b""
     tx_frame_bits: int = 0
     tx_frame_us: int = 0
+    rx_elapsed_us: int = 0
+    rx_idle_us: int = 0
+    rx_timeout_us: int = 0
+    rx_final_edges: int = 0
 
 
 @dataclass
@@ -75,6 +79,14 @@ class Transaction:
     captures: list = field(default_factory=list)  # list of RxCapture
     result: str = ""        # RESULT line
     abort: str = ""
+
+
+@dataclass
+class Mc4kSweepCandidate:
+    bits: int = 0
+    data: bytes = b""
+    threshold: int = 0
+    sof_bits: int = 0
 
 
 def parse_edges(edge_line: str) -> list:
@@ -150,6 +162,21 @@ def decode_mc4k(edges: list, threshold: int = 192, sof_bits: int = 6) -> tuple:
             data_bits += 1
 
     return data_bits, bytes(data[:(data_bits + 7) // 8]), hp_levels
+
+
+def sweep_mc4k_decode(cap: RxCapture) -> Optional[Mc4kSweepCandidate]:
+    """Find the best MC4K decode candidate across plausible thresholds and SOF lengths."""
+    if cap.mode != "MC4K" or not cap.edges:
+        return None
+
+    best = Mc4kSweepCandidate()
+    for sof_bits in range(0, 7):
+        for threshold in range(144, 257, 16):
+            bits, data, _ = decode_mc4k(cap.edges, threshold=threshold, sof_bits=sof_bits)
+            if bits > best.bits:
+                best = Mc4kSweepCandidate(bits=bits, data=data, threshold=threshold, sof_bits=sof_bits)
+
+    return best if best.bits > 0 else None
 
 
 def decode_ac2k(edges: list, sof_bits: int = 1) -> tuple:
@@ -249,6 +276,12 @@ def is_valid_ac2k_uid_capture(bits: int, edges: list) -> bool:
     return bits == 32 and not ac2k_quality(edges)["too_noisy"]
 
 
+def is_marginal_ac2k_uid_capture(bits: int, edges: list) -> bool:
+    """Return whether a complete noisy UID capture is usable only as a fallback."""
+    quality = ac2k_quality(edges)
+    return bits == 32 and quality["glitches"] <= 2 and quality["long_ac_periods"] <= 1
+
+
 def accepted_uid_candidates(tf) -> set:
     """Return clean 32-bit AC2K UID candidates from a parsed trace."""
     accepted = set()
@@ -258,11 +291,28 @@ def accepted_uid_candidates(tf) -> set:
         for cap in txn.captures:
             if cap.mode != "AC2K":
                 continue
-            for sof_bits in (0, 3):
-                bits, data = decode_ac2k(cap.edges, sof_bits=sof_bits)
-                if is_valid_ac2k_uid_capture(bits, cap.edges):
-                    accepted.add(data[:4].hex().upper())
+            bits, data = decode_ac2k(cap.edges, sof_bits=0)
+            if is_valid_ac2k_uid_capture(bits, cap.edges):
+                accepted.add(data[:4].hex().upper())
     return accepted
+
+
+def marginal_uid_candidates(tf) -> set:
+    """Return noisy but complete AC2K UID candidates that firmware may use as fallback."""
+    candidates = set()
+    for txn in tf.transactions:
+        if txn.section != "UID_REQUEST":
+            continue
+        for cap in txn.captures:
+            if cap.mode != "AC2K":
+                continue
+            bits, data = decode_ac2k(cap.edges, sof_bits=0)
+            if (
+                not is_valid_ac2k_uid_capture(bits, cap.edges)
+                and is_marginal_ac2k_uid_capture(bits, cap.edges)
+            ):
+                candidates.add(data[:4].hex().upper())
+    return candidates
 
 
 def pack_bits(buf: bytearray, bit_pos: int, value: int, n_bits: int) -> int:
@@ -445,7 +495,10 @@ def parse_trace(text: str) -> TraceFile:
 
         # RX lines — start new capture
         if stripped.startswith("RX:"):
-            current_capture = RxCapture()
+            if current_capture is None or current_capture.mode or current_capture.edges:
+                current_capture = RxCapture()
+                if current_txn:
+                    current_txn.captures.append(current_capture)
             if current_txn:
                 current_capture.tx_desc = current_txn.tx_desc
                 current_capture.tx_frame = current_txn.tx_frame
@@ -457,7 +510,22 @@ def parse_trace(text: str) -> TraceFile:
             m3 = re.search(r'(\d+) edges', stripped)
             if m3:
                 pass  # edges will be parsed from EDGES line
-            if current_txn:
+            continue
+
+        if stripped.startswith("RX_META:"):
+            meta_match = re.search(
+                r'elapsed_us=(\d+)\s+idle_us=(\d+)\s+timeout_us=(\d+)\s+final_edges=(\d+)',
+                stripped)
+            if meta_match and current_txn:
+                current_capture = RxCapture()
+                current_capture.tx_desc = current_txn.tx_desc
+                current_capture.tx_frame = current_txn.tx_frame
+                current_capture.tx_frame_bits = current_txn.tx_frame_bits
+                current_capture.tx_frame_us = current_txn.tx_frame_us
+                current_capture.rx_elapsed_us = int(meta_match.group(1))
+                current_capture.rx_idle_us = int(meta_match.group(2))
+                current_capture.rx_timeout_us = int(meta_match.group(3))
+                current_capture.rx_final_edges = int(meta_match.group(4))
                 current_txn.captures.append(current_capture)
             continue
 
@@ -613,6 +681,10 @@ def diagnose_select_transactions(transactions: list) -> list:
         frame_check = select_tx_frame_check(txn)
         timeout = "TIMEOUT" in txn.result
         max_decode_bits = max((cap.decode_bits for cap in txn.captures), default=0)
+        max_sweep_bits = max(
+            ((sweep.bits if sweep else 0) for sweep in (sweep_mc4k_decode(cap) for cap in txn.captures)),
+            default=0,
+        )
 
         if frame_check and not frame_check["ok"]:
             findings.append(
@@ -625,10 +697,15 @@ def diagnose_select_transactions(transactions: list) -> list:
             findings.append(
                 "SELECT timed out with no decoded MC4K response; trace lacks TX_FRAME, "
                 "so capture a new trace before separating frame bugs from RF/timing issues.")
+        elif timeout and max_decode_bits > 0 and max_sweep_bits >= 32:
+            findings.append(
+                f"SELECT produced only {max_decode_bits} decoded MC4K bits, but threshold/SOF "
+                f"sweep can recover {max_sweep_bits}; tune MC4K decode parameters.")
         elif timeout and max_decode_bits > 0:
             findings.append(
-                f"SELECT produced only {max_decode_bits} decoded MC4K bits; inspect edge timing "
-                "and Manchester threshold/SOF alignment.")
+                f"SELECT produced only {max_decode_bits} decoded MC4K bits. "
+                f"MC4K sweep still only recovers {max_sweep_bits} bits, so prioritize "
+                "response window/RF coupling over Manchester threshold tuning.")
 
     return findings
 
@@ -731,6 +808,11 @@ def generate_report(tf: TraceFile, show_edges: bool = False, redecode: bool = Fa
                     f", tx_frame={tx_frame}/{cap.tx_frame_bits}b tx_us="
                     f"{cap.tx_frame_us or 'n/a'}"
                 )
+            if cap.rx_timeout_us:
+                capture_line += (
+                    f", rx_meta=elapsed:{cap.rx_elapsed_us}us idle:{cap.rx_idle_us}us "
+                    f"timeout:{cap.rx_timeout_us}us final_edges:{cap.rx_final_edges}"
+                )
             lines.append(capture_line)
 
             if txn.section == "SELECT":
@@ -792,15 +874,27 @@ def generate_report(tf: TraceFile, show_edges: bool = False, redecode: bool = Fa
                     lines.append(f"  Re-decode MC4K: {bits} bits = {new_hex}")
                     if orig_hex != new_hex and cap.decode_data:
                         lines.append(f"    ⚠ MISMATCH: original={orig_hex}")
+                    sweep = sweep_mc4k_decode(cap)
+                    if sweep and sweep.bits > bits:
+                        sweep_hex = sweep.data.hex().upper() if sweep.data else "N/A"
+                        lines.append(
+                            "    MC4K sweep: "
+                            f"best={sweep.bits} bits threshold={sweep.threshold} "
+                            f"sof={sweep.sof_bits} data={sweep_hex}"
+                        )
                 elif cap.mode == 'AC2K':
-                    sof_bits = 3 if tf.proto_mode.upper().startswith("ADV") else 0
-                    bits, data = decode_ac2k(cap.edges, sof_bits=sof_bits)
+                    bits, data = decode_ac2k(cap.edges, sof_bits=0)
                     new_hex = data.hex().upper() if data else "N/A"
                     lines.append(f"  Re-decode AC2K: {bits} bits = {new_hex}")
                     quality = ac2k_quality(cap.edges)
                     if quality["too_noisy"]:
+                        severity = (
+                            "marginal fallback candidate"
+                            if is_marginal_ac2k_uid_capture(bits, cap.edges)
+                            else "noisy candidate"
+                        )
                         lines.append(
-                            "    ⚠ AC2K noisy candidate: "
+                            f"    ⚠ AC2K {severity}: "
                             f"{quality['glitches']} glitches, "
                             f"{quality['long_ac_periods']} long AC gaps"
                         )
@@ -885,6 +979,43 @@ def _frame_status(checks: list[Optional[dict]], saw_tx: bool) -> str:
     return "legacy" if saw_tx else "-"
 
 
+def _batch_hint(
+    tf: TraceFile,
+    uid_tx: str,
+    select_tx: str,
+    select_bits: int,
+    select_sweep_bits: int,
+    accepted: set[str],
+    marginal: set[str],
+) -> str:
+    """Return the next investigation target for one trace row."""
+    if tf.field_pull == "" or uid_tx == "legacy" or select_tx == "legacy":
+        return "legacy-insufficient"
+    if tf.field_carrier_hz and tf.field_carrier_hz != 125000:
+        return "fix-field-carrier"
+    if tf.field_pull and tf.field_pull != "release":
+        return "fix-field-pull"
+    if uid_tx == "mismatch":
+        return "fix-uid-frame"
+    if select_tx == "mismatch":
+        return "fix-select-frame"
+    if tf.uid is None and accepted and select_tx == "-":
+        return "uid-offline-recovered"
+    if tf.uid is None and not accepted and marginal:
+        return "uid-marginal-fallback"
+    if tf.uid is None and not accepted:
+        return "uid-rf-or-window"
+    if select_tx == "ok" and select_bits == 0:
+        return "select-rf-or-window"
+    if 0 < select_bits < 32 and select_sweep_bits >= 32:
+        return "select-decode-sweep"
+    if 0 < select_bits < 32:
+        return "select-decode-threshold"
+    if select_bits >= 32:
+        return "inspect-select-payload"
+    return "needs-more-evidence"
+
+
 def generate_batch_summary(named_traces: list[tuple[str, TraceFile]]) -> str:
     """Generate a compact matrix for multiple trace files."""
     lines = [
@@ -895,7 +1026,10 @@ def generate_batch_summary(named_traces: list[tuple[str, TraceFile]]) -> str:
 
     for name, tf in named_traces:
         uid = f"{tf.uid:08X}" if tf.uid is not None else "-"
-        accepted = ",".join(sorted(accepted_uid_candidates(tf))) or "-"
+        accepted_set = accepted_uid_candidates(tf)
+        accepted = ",".join(sorted(accepted_set)) or "-"
+        marginal_set = marginal_uid_candidates(tf)
+        marginal = ",".join(sorted(marginal_set)) or "-"
         field = tf.field_pull or "legacy"
 
         uid_caps = [
@@ -909,21 +1043,17 @@ def generate_batch_summary(named_traces: list[tuple[str, TraceFile]]) -> str:
         select_tx = _frame_status(
             [select_capture_frame_check(cap) for cap in select_caps], bool(select_caps))
         select_bits = max((cap.decode_bits for cap in select_caps), default=0)
-
-        if select_tx == "mismatch":
-            hint = "fix-frame"
-        elif select_tx == "ok" and select_bits == 0:
-            hint = "rf-or-window"
-        elif select_bits > 0 and select_bits < 32:
-            hint = "decode-threshold"
-        elif select_bits >= 32:
-            hint = "select-response"
-        else:
-            hint = "needs-new-trace"
+        select_sweep_bits = max(
+            ((sweep.bits if sweep else 0) for sweep in (sweep_mc4k_decode(cap) for cap in select_caps)),
+            default=0,
+        )
+        hint = _batch_hint(
+            tf, uid_tx, select_tx, select_bits, select_sweep_bits, accepted_set, marginal_set)
 
         lines.append(
-            f"{name} | uid={uid} | accepted={accepted} | field={field} | "
-            f"uid_tx={uid_tx} | select_tx={select_tx} | select_bits={select_bits} | {hint}"
+            f"{name} | uid={uid} | accepted={accepted} | marginal={marginal} | field={field} | "
+            f"uid_tx={uid_tx} | select_tx={select_tx} | select_bits={select_bits} | "
+            f"select_sweep={select_sweep_bits} | {hint}"
         )
 
     return "\n".join(lines)

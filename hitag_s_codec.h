@@ -52,6 +52,8 @@ bool hitag_s_codec_is_valid_ac2k_uid_capture(
     const HitagSEdge* edges,
     size_t edge_count);
 
+bool hitag_s_codec_is_marginal_ac2k_uid_quality(size_t bits, const HitagSAc2kQuality* quality);
+
 #ifdef __cplusplus
 }
 #endif

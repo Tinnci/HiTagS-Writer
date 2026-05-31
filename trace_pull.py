@@ -12,7 +12,9 @@ from pathlib import Path
 import analyze_trace
 
 
-TRACE_RE = re.compile(r"(?P<path>/ext/lfrfid/Trace(?:_NoUID)?_[0-9A-Fa-f]+\.htsd), size (?P<size>\d+)b")
+TRACE_RE = re.compile(
+    r"(?P<path>/ext/lfrfid/Trace(?:_NoUID)?_[0-9A-Fa-f]+(?:_[0-9A-Fa-f]+)?\.htsd), size (?P<size>\d+)b"
+)
 
 
 def parse_trace_listing(text: str) -> list[tuple[str, int]]:
@@ -49,7 +51,12 @@ def pull_traces(storage_script: Path, port: str | None, out_dir: Path) -> list[P
     pulled: list[Path] = []
     for remote_path, size in traces:
         local_path = out_dir / local_trace_name(remote_path, size)
-        run_storage(storage_script, port, ["receive", remote_path, str(local_path)])
+        try:
+            run_storage(storage_script, port, ["receive", remote_path, str(local_path)])
+        except subprocess.CalledProcessError as exc:
+            err = (exc.stderr or exc.stdout or str(exc)).strip()
+            print(f"Warning: failed to pull {remote_path}: {err}", file=sys.stderr)
+            continue
         pulled.append(local_path)
     return pulled
 

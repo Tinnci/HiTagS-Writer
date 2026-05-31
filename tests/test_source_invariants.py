@@ -117,6 +117,41 @@ class SourceInvariantTests(unittest.TestCase):
         self.assertIn("tx_us=", uid_request)
         self.assertIn("cmd[0]", uid_request)
 
+    def test_uid_request_keeps_marginal_32_bit_uid_as_fallback(self):
+        source = (ROOT / "hitag_s_session.c").read_text()
+        uid_request = source.split("HitagSResult hitag_s_uid_request", 1)[1].split(
+            "static HitagSResult hitag_s_select_frame", 1
+        )[0]
+
+        self.assertIn("marginal_uid_valid", uid_request)
+        self.assertIn("hitag_s_capture_is_marginal_uid_candidate", uid_request)
+        self.assertIn("RESULT: OK, UID=%08lX (mode=%s, AC2K, marginal)", uid_request)
+        self.assertIn("using marginal noisy AC2K UID", uid_request)
+
+    def test_all_uid_request_modes_decode_uid_without_extra_sof_strip(self):
+        source = (ROOT / "hitag_s_session.c").read_text()
+        proto_modes = source.split("static const HitagSProtoMode proto_modes[]", 1)[1].split(
+            "};",
+            1,
+        )[0]
+
+        self.assertIn('{0x06, "STD", 0, 1, false}', proto_modes)
+        self.assertIn('{0x19, "ADV1", 0, 6, true}', proto_modes)
+        self.assertIn('{0x18, "ADV2", 0, 6, true}', proto_modes)
+
+    def test_rx_trace_records_window_timing_metadata(self):
+        source = (ROOT / "hitag_s_session.c").read_text()
+        send_receive = source.split("static size_t hitag_s_send_receive", 1)[1].split(
+            "/* ============================================================\n"
+            " * Hitag S Command Builders",
+            1,
+        )[0]
+
+        self.assertIn("RX_META:", send_receive)
+        self.assertIn("elapsed_us=", send_receive)
+        self.assertIn("idle_us=", send_receive)
+        self.assertIn("timeout_us=", send_receive)
+
     def test_app_menu_matches_official_style_grouped_flow(self):
         start = (ROOT / "scenes/hitags_writer_scene_start.c").read_text()
         config = (ROOT / "scenes/hitags_writer_scene_config.h").read_text()
@@ -208,6 +243,23 @@ class SourceInvariantTests(unittest.TestCase):
 
         self.assertNotIn("No tag found", read_pages)
         self.assertIn("8268 protocol", read_pages)
+
+    def test_official_em4100_read_path_has_basic_debug_logging(self):
+        read_em4100 = (ROOT / "scenes/hitags_writer_scene_read_em4100.c").read_text()
+        success = (ROOT / "scenes/hitags_writer_scene_read_em4100_success.c").read_text()
+
+        self.assertIn('#define TAG "HitagSReadEM"', read_em4100)
+        self.assertIn("FURI_LOG_I(TAG, \"Read EM4100: start official LF RFID worker", read_em4100)
+        self.assertIn("FURI_LOG_D(TAG, \"LF RFID callback", read_em4100)
+        self.assertIn("FURI_LOG_I(TAG, \"Read EM4100: switching to ASK", read_em4100)
+        self.assertIn("FURI_LOG_I(TAG, \"Read EM4100: switching to PSK", read_em4100)
+        self.assertIn("FURI_LOG_I(TAG, \"Read EM4100: done", read_em4100)
+        self.assertIn("FURI_LOG_I(TAG, \"Read EM4100: stop official LF RFID worker", read_em4100)
+
+        self.assertRegex(success, r'#define\s+TAG\s+"HitagSReadEMOK"')
+        self.assertIn('"Read EM4100 success:', success)
+        self.assertIn('"Read EM4100 data:', success)
+        self.assertIn("FURI_LOG_I(TAG, \"Read EM4100 result can be written to 8268", success)
 
 
 if __name__ == "__main__":
