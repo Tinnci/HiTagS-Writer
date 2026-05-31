@@ -11,7 +11,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include <string.h>
 #include "em4100_encode.h"
 
 #ifdef __cplusplus
@@ -83,13 +82,33 @@ typedef struct {
  * @return Parsed config struct
  */
 static inline HitagSConfig hitag_s_parse_config(uint32_t config_val) {
-    HitagSConfig cfg;
-    uint8_t bytes[4] = {
-        (uint8_t)(config_val >> 24),
-        (uint8_t)(config_val >> 16),
-        (uint8_t)(config_val >> 8),
-        (uint8_t)(config_val)};
-    memcpy(&cfg, bytes, 4);
+    uint8_t con0 = (uint8_t)(config_val >> 24);
+    uint8_t con1 = (uint8_t)(config_val >> 16);
+    uint8_t con2 = (uint8_t)(config_val >> 8);
+    HitagSConfig cfg = {
+        .MEMT = con0 & 0x03,
+        .RES0 = (con0 >> 2) & 0x01,
+        .RES1 = (con0 >> 3) & 0x01,
+        .RES2 = (con0 >> 4) & 0x01,
+        .RES3 = (con0 >> 5) & 0x01,
+        .RES4 = (con0 >> 6) & 0x01,
+        .RES5 = (con0 >> 7) & 0x01,
+        .LKP = con1 & 0x01,
+        .LCON = (con1 >> 1) & 0x01,
+        .TTFM = (con1 >> 2) & 0x03,
+        .TTFDR = (con1 >> 4) & 0x03,
+        .TTFC = (con1 >> 6) & 0x01,
+        .auth = (con1 >> 7) & 0x01,
+        .LCK0 = con2 & 0x01,
+        .LCK1 = (con2 >> 1) & 0x01,
+        .LCK2 = (con2 >> 2) & 0x01,
+        .LCK3 = (con2 >> 3) & 0x01,
+        .LCK4 = (con2 >> 4) & 0x01,
+        .LCK5 = (con2 >> 5) & 0x01,
+        .LCK6 = (con2 >> 6) & 0x01,
+        .LCK7 = (con2 >> 7) & 0x01,
+        .pwdh0 = (uint8_t)config_val,
+    };
     return cfg;
 }
 
@@ -99,10 +118,18 @@ static inline HitagSConfig hitag_s_parse_config(uint32_t config_val) {
  * @return 32-bit config value
  */
 static inline uint32_t hitag_s_pack_config(const HitagSConfig* cfg) {
-    uint8_t bytes[4];
-    memcpy(bytes, cfg, 4);
-    return ((uint32_t)bytes[0] << 24) | ((uint32_t)bytes[1] << 16) | ((uint32_t)bytes[2] << 8) |
-           (uint32_t)bytes[3];
+    uint8_t con0 = (cfg->MEMT & 0x03) | ((cfg->RES0 & 0x01) << 2) | ((cfg->RES1 & 0x01) << 3) |
+                   ((cfg->RES2 & 0x01) << 4) | ((cfg->RES3 & 0x01) << 5) |
+                   ((cfg->RES4 & 0x01) << 6) | ((cfg->RES5 & 0x01) << 7);
+    uint8_t con1 = (cfg->LKP & 0x01) | ((cfg->LCON & 0x01) << 1) | ((cfg->TTFM & 0x03) << 2) |
+                   ((cfg->TTFDR & 0x03) << 4) | ((cfg->TTFC & 0x01) << 6) |
+                   ((cfg->auth & 0x01) << 7);
+    uint8_t con2 = (cfg->LCK0 & 0x01) | ((cfg->LCK1 & 0x01) << 1) | ((cfg->LCK2 & 0x01) << 2) |
+                   ((cfg->LCK3 & 0x01) << 3) | ((cfg->LCK4 & 0x01) << 4) |
+                   ((cfg->LCK5 & 0x01) << 5) | ((cfg->LCK6 & 0x01) << 6) |
+                   ((cfg->LCK7 & 0x01) << 7);
+    return ((uint32_t)con0 << 24) | ((uint32_t)con1 << 16) | ((uint32_t)con2 << 8) |
+           (uint32_t)cfg->pwdh0;
 }
 
 /**
@@ -153,6 +180,7 @@ static inline bool hitag_s_page_locked(const HitagSConfig* cfg, uint8_t page) {
 #define HITAG_S_T_STOP_CYCLES     36 /* Stop/EOF duration in T0 cycles (spec: >=36, PM3: 36) */
 #define HITAG_S_T_WAIT_POWERUP_US 3000 /* Power-up + START_AUTH window margin */
 #define HITAG_S_T_WAIT_SC_US      1600 /* Standard command wait (200 × T0, spec: 90..5000) */
+#define HITAG_S_T_WAIT_INTER_US   400 /* After RX idle, top up to about T_WAIT_SC before next TX */
 #define HITAG_S_T_WAIT_RESP_US    200 /* Wait for tag response */
 #define HITAG_S_T_RX_IDLE_US      1200 /* Stop receive after response edges go idle */
 #define HITAG_S_T_PROG_US         6000 /* Program time after write (750 × T0, spec: 716..726) */
@@ -431,23 +459,6 @@ bool hitag_s_dump_load(
     uint32_t* pages,
     bool* page_valid,
     int* max_page);
-
-/* --- Debug Trace ---
- * When enabled, protocol functions append detailed RF transaction logs
- * to an internal FuriString buffer. Use start/stop/save functions
- * to manage the trace lifecycle.
- *
- * Intended for offline analysis with analyze_trace.py.
- */
-
-/** Start debug trace — allocates buffer, enables logging */
-void hitag_s_debug_trace_start(void);
-
-/** Stop debug trace — disables logging, returns buffer (caller must free with furi_string_free) */
-void* hitag_s_debug_trace_stop(void); /* Returns FuriString* (void* to avoid furi include) */
-
-/** Save debug trace to .htsd file */
-bool hitag_s_debug_trace_save(void* storage, const char* path, void* trace_string);
 
 /** Perform a full debug read: UID + SELECT + Auth + Read all pages, with tracing */
 HitagSResult hitag_s_debug_read_sequence(

@@ -29,22 +29,25 @@ static void hitags_writer_scene_load_dump_confirm_cb(DialogExResult result, void
  * Selects which pages to write: data pages 4+ that have valid data.
  */
 static void hitags_writer_prepare_clone_data(HitagSApp* app) {
-    app->clone_count = 0;
+    HitagSTagDump dump;
+    HitagSClonePlan plan;
+    hitag_s_dump_model_reset(&dump);
 
-    /* Collect data pages (4+) that have valid data */
-    for(int p = 4; p < HITAG_S_MAX_PAGES; p++) {
-        if(app->dump_valid[p]) {
-            app->clone_addrs[app->clone_count] = (uint8_t)p;
-            app->clone_pages[app->clone_count] = app->dump_pages[p];
-            app->clone_count++;
-        }
+    dump.uid = app->dump_pages[0];
+    dump.max_page = app->dump_max_page;
+    for(int p = 0; p < HITAG_S_MAX_PAGES; p++) {
+        dump.pages[p] = app->dump_pages[p];
+        dump.page_status[p] = app->dump_valid[p] ? HitagSPageStatusReadOk :
+                                                   HitagSPageStatusInvalid;
     }
 
-    /* UID from page 0 */
-    app->clone_uid = app->dump_pages[0];
+    hitag_s_dump_model_make_clone_plan(&dump, &plan);
 
-    /* Config from page 1 */
-    app->clone_config = app->dump_valid[1] ? app->dump_pages[1] : 0;
+    app->clone_uid = plan.uid;
+    app->clone_config = plan.config;
+    app->clone_count = plan.count;
+    memcpy(app->clone_pages, plan.pages, sizeof(app->clone_pages));
+    memcpy(app->clone_addrs, plan.addrs, sizeof(app->clone_addrs));
 
     FURI_LOG_I(
         "LoadDump",

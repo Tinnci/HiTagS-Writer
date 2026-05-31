@@ -42,13 +42,20 @@ static void hitags_writer_scene_debug_read_save_trace(HitagSApp* app) {
         return;
     }
 
-    /* Generate filename from UID */
     FuriString* filename = furi_string_alloc();
+    FuriString* basename = furi_string_alloc();
+    if(app->tag_uid == 0) {
+        uint32_t timestamp = furi_hal_rtc_get_timestamp();
+        if(timestamp == 0) timestamp = furi_get_tick();
+        furi_string_printf(basename, "Trace_NoUID_%08lX", (unsigned long)timestamp);
+    } else {
+        furi_string_printf(basename, "Trace_%08lX", (unsigned long)app->tag_uid);
+    }
     furi_string_printf(
         filename,
-        "%s/Trace_%08lX%s",
+        "%s/%s%s",
         HITAGS_TRACE_FOLDER,
-        (unsigned long)app->tag_uid,
+        furi_string_get_cstr(basename),
         HITAGS_TRACE_EXTENSION);
 
     /* Ensure directory exists */
@@ -65,8 +72,7 @@ static void hitags_writer_scene_debug_read_save_trace(HitagSApp* app) {
         popup_reset(popup);
         popup_set_header(popup, "Saved!", 97, 12, AlignCenter, AlignTop);
         popup_set_icon(popup, 0, 9, &I_DolphinSuccess_91x55);
-        snprintf(
-            app->text_store, sizeof(app->text_store), "Trace_%08lX", (unsigned long)app->tag_uid);
+        snprintf(app->text_store, sizeof(app->text_store), "%s", furi_string_get_cstr(basename));
         popup_set_text(popup, app->text_store, 97, 25, AlignCenter, AlignTop);
         popup_set_context(popup, app);
         popup_set_callback(popup, hitags_writer_popup_timeout_callback);
@@ -78,6 +84,7 @@ static void hitags_writer_scene_debug_read_save_trace(HitagSApp* app) {
         dialog_message_show_storage_error(app->dialogs, "Save failed!");
     }
 
+    furi_string_free(basename);
     furi_string_free(filename);
 }
 
@@ -140,14 +147,14 @@ bool hitags_writer_scene_debug_read_on_event(void* context, SceneManagerEvent ev
         } else if(event.event == HitagSEventDebugPartial) {
             hitags_writer_worker_stop(app);
             notification_message(app->notifications, &sequence_blink_stop);
-            notification_message(app->notifications, &sequence_error);
+            notification_message(app->notifications, &sequence_success);
 
             Widget* widget = app->widget;
             widget_reset(widget);
 
             widget_add_icon_element(widget, 83, 22, &I_WarningDolphinFlip_45x42);
             widget_add_string_element(
-                widget, 40, 5, AlignCenter, AlignTop, FontPrimary, "Partial Trace");
+                widget, 40, 5, AlignCenter, AlignTop, FontPrimary, "Trace Ready");
 
             widget_add_string_multiline_element(
                 widget,

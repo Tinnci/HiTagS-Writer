@@ -1,0 +1,145 @@
+/**
+ * @file hitag_s_codec.c
+ * @brief Pure HiTag S codec helpers.
+ */
+
+#include "hitag_s_codec.h"
+
+#define HITAG_S_AC2K_GLITCH_US      80U
+#define HITAG_S_CODEC_T0_US         8U
+#define HITAG_S_CODEC_T_0_CYCLES    20U
+#define HITAG_S_CODEC_T_1_CYCLES    28U
+#define HITAG_S_CODEC_T_LOW_CYCLES  8U
+#define HITAG_S_CODEC_T_STOP_CYCLES 36U
+
+uint8_t hitag_s_codec_crc8(const uint8_t* data, size_t bits) {
+    uint8_t crc = 0xFF;
+    for(size_t i = 0; i < bits; i++) {
+        uint8_t byte_idx = i / 8;
+        uint8_t bit_idx = 7 - (i % 8);
+        bool bit = (data[byte_idx] >> bit_idx) & 1U;
+        bool c7 = (crc >> 7) & 1U;
+        crc <<= 1;
+        if(c7 ^ bit) {
+            crc ^= 0x1D;
+        }
+    }
+    return crc;
+}
+
+void hitag_s_codec_pack_bits(uint8_t* buf, size_t* bit_pos, uint32_t value, size_t n_bits) {
+    for(size_t i = 0; i < n_bits; i++) {
+        size_t pos = *bit_pos + i;
+        uint8_t byte_idx = pos / 8;
+        uint8_t bit_idx = 7 - (pos % 8);
+        bool bit_val = (value >> (n_bits - 1 - i)) & 1U;
+        if(bit_val) {
+            buf[byte_idx] |= (1U << bit_idx);
+        } else {
+            buf[byte_idx] &= ~(1U << bit_idx);
+        }
+    }
+    *bit_pos += n_bits;
+}
+
+uint8_t hitag_s_codec_build_select_frame(uint8_t* buf, size_t* bits, uint32_t uid) {
+    *bits = 0;
+    hitag_s_codec_pack_bits(buf, bits, 0x00, 5);
+    hitag_s_codec_pack_bits(buf, bits, uid, 32);
+    uint8_t crc = hitag_s_codec_crc8(buf, *bits);
+    hitag_s_codec_pack_bits(buf, bits, crc, 8);
+    return crc;
+}
+
+static uint32_t hitag_s_codec_reverse_uid_bytes(uint32_t uid) {
+    return ((uid & 0x000000FFUL) << 24) | ((uid & 0x0000FF00UL) << 8) |
+           ((uid & 0x00FF0000UL) >> 8) | ((uid & 0xFF000000UL) >> 24);
+}
+
+static uint8_t hitag_s_codec_reverse_bits8(uint8_t v) {
+    v = ((v & 0xF0U) >> 4) | ((v & 0x0FU) << 4);
+    v = ((v & 0xCCU) >> 2) | ((v & 0x33U) << 2);
+    return ((v & 0xAAU) >> 1) | ((v & 0x55U) << 1);
+}
+
+static uint32_t hitag_s_codec_reverse_uid_byte_bits(uint32_t uid) {
+    return ((uint32_t)hitag_s_codec_reverse_bits8((uid >> 24) & 0xFFU) << 24) |
+           ((uint32_t)hitag_s_codec_reverse_bits8((uid >> 16) & 0xFFU) << 16) |
+           ((uint32_t)hitag_s_codec_reverse_bits8((uid >> 8) & 0xFFU) << 8) |
+           (uint32_t)hitag_s_codec_reverse_bits8(uid & 0xFFU);
+}
+
+size_t hitag_s_codec_uid_variants(uint32_t uid, HitagSUidVariant* variants, size_t max_variants) {
+    const HitagSUidVariant candidates[HITAG_S_UID_VARIANT_MAX] = {
+        {uid, "UID0..UID3"},
+        {hitag_s_codec_reverse_uid_bytes(uid), "UID3..UID0"},
+        {hitag_s_codec_reverse_uid_byte_bits(uid), "bit-reversed bytes"},
+        {
+            hitag_s_codec_reverse_uid_bytes(hitag_s_codec_reverse_uid_byte_bits(uid)),
+            "bit+byte reversed",
+        },
+    };
+    size_t count = 0;
+
+    for(size_t i = 0; i < HITAG_S_UID_VARIANT_MAX && count < max_variants; i++) {
+        bool duplicate = false;
+        for(size_t j = 0; j < count; j++) {
+            if(variants[j].uid == candidates[i].uid) {
+                duplicate = true;
+                break;
+            }
+        }
+        if(duplicate) continue;
+        variants[count++] = candidates[i];
+    }
+
+    return count;
+}
+
+uint32_t hitag_s_codec_bplm_frame_duration_us(const uint8_t* data, size_t bits) {
+    uint32_t duration = 0;
+
+    for(size_t i = 0; i < bits; i++) {
+        uint8_t byte_idx = i / 8;
+        uint8_t bit_idx = 7 - (i % 8);
+        bool bit = (data[byte_idx] >> bit_idx) & 1U;
+        duration +=
+            (bit ? HITAG_S_CODEC_T_1_CYCLES : HITAG_S_CODEC_T_0_CYCLES) * HITAG_S_CODEC_T0_US;
+    }
+
+    duration += (HITAG_S_CODEC_T_LOW_CYCLES + HITAG_S_CODEC_T_STOP_CYCLES) * HITAG_S_CODEC_T0_US;
+    return duration;
+}
+
+void hitag_s_codec_ac2k_quality_add(HitagSAc2kQuality* quality, bool level, uint32_t duration) {
+    if(level) return;
+
+    if(duration < HITAG_S_AC2K_GLITCH_US) {
+        quality->glitches++;
+    } else if(duration > 1100U) {
+        quality->long_gaps++;
+        quality->long_ac_periods++;
+    } else if(duration > 600U) {
+        quality->long_ac_periods++;
+    } else {
+        quality->usable_periods++;
+    }
+
+    quality->too_noisy = quality->glitches > 1 || quality->long_ac_periods > 1;
+}
+
+HitagSAc2kQuality hitag_s_codec_ac2k_quality(const HitagSEdge* edges, size_t edge_count) {
+    HitagSAc2kQuality quality = {0};
+
+    for(size_t i = 0; i < edge_count; i++) {
+        hitag_s_codec_ac2k_quality_add(&quality, edges[i].level, edges[i].duration);
+    }
+    return quality;
+}
+
+bool hitag_s_codec_is_valid_ac2k_uid_capture(
+    size_t bits,
+    const HitagSEdge* edges,
+    size_t edge_count) {
+    return bits == 32 && !hitag_s_codec_ac2k_quality(edges, edge_count).too_noisy;
+}

@@ -185,9 +185,17 @@ pixi run launch
 ```
 HiTagS Writer/
 ├── application.fam            # FAP manifest
-├── hitags_writer_main.c       # Main entry + Worker thread + ViewDispatcher
+├── hitags_writer_main.c       # Main entry + app lifecycle + ViewDispatcher
+├── hitags_worker.c            # Worker thread operation dispatch and retry loops
 ├── hitags_writer_i.h          # Internal header + App struct
-├── hitag_s_proto.c/h          # HiTag S protocol (BPLM TX / MC4K RX / CRC-8 / 8268 auth)
+├── hitag_s_proto.c/h          # Compatibility facade + shared public declarations
+├── hitag_s_session.c          # HiTag S UID/SELECT/AUTH/READ/WRITE session commands
+├── hitag_s_8268.c             # 8268 read/write/dump/clone/wipe/debug operations
+├── hitag_s_transport.c        # RF field control + BPLM transmit
+├── hitag_s_codec.c/h          # CRC, bit packing, AC2K quality checks
+├── hitag_s_trace.c/h          # Debug trace lifecycle and persistence
+├── hitag_s_dump_file.c        # .hts dump file save/load
+├── hitag_s_dump_model.h       # Offline-testable dump/clone planning model
 ├── em4100_encode.c/h          # EM4100 encoder (40-bit → 64-bit Manchester)
 ├── scenes/
 │   ├── hitags_writer_scene_config.h    # Scene declarations (X-Macro)

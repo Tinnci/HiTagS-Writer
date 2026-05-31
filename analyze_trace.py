@@ -57,6 +57,7 @@ class RxCapture:
     mode: str = ""
     decode_bits: int = 0
     decode_data: bytes = b""
+    tx_desc: str = ""
 
 
 @dataclass
@@ -64,8 +65,13 @@ class Transaction:
     """One TX/RX transaction from the trace."""
     section: str = ""       # e.g., "UID_REQUEST", "SELECT", "AUTH"
     tx_desc: str = ""       # TX description line
+    tx_lines: list = field(default_factory=list)
+    tx_frame: bytes = b""
+    tx_frame_bits: int = 0
+    tx_frame_us: int = 0
     captures: list = field(default_factory=list)  # list of RxCapture
     result: str = ""        # RESULT line
+    abort: str = ""
 
 
 def parse_edges(edge_line: str) -> list:
@@ -240,6 +246,81 @@ def is_valid_ac2k_uid_capture(bits: int, edges: list) -> bool:
     return bits == 32 and not ac2k_quality(edges)["too_noisy"]
 
 
+def accepted_uid_candidates(tf) -> set:
+    """Return clean 32-bit AC2K UID candidates from a parsed trace."""
+    accepted = set()
+    for txn in tf.transactions:
+        if txn.section != "UID_REQUEST":
+            continue
+        for cap in txn.captures:
+            if cap.mode != "AC2K":
+                continue
+            for sof_bits in (0, 3):
+                bits, data = decode_ac2k(cap.edges, sof_bits=sof_bits)
+                if is_valid_ac2k_uid_capture(bits, cap.edges):
+                    accepted.add(data[:4].hex().upper())
+    return accepted
+
+
+def pack_bits(buf: bytearray, bit_pos: int, value: int, n_bits: int) -> int:
+    """Pack MSB-first bits into buf and return the updated bit position."""
+    for i in range(n_bits):
+        pos = bit_pos + i
+        bit_val = (value >> (n_bits - 1 - i)) & 1
+        if bit_val:
+            buf[pos // 8] |= 1 << (7 - (pos % 8))
+        else:
+            buf[pos // 8] &= ~(1 << (7 - (pos % 8)))
+    return bit_pos + n_bits
+
+
+def build_select_frame(uid: int) -> tuple:
+    """Build SELECT command bytes as sent by the firmware model."""
+    frame = bytearray(6)
+    bit_pos = 0
+    bit_pos = pack_bits(frame, bit_pos, 0, 5)
+    bit_pos = pack_bits(frame, bit_pos, uid, 32)
+    crc = hitag_s_crc8(bytes(frame), bit_pos)
+    bit_pos = pack_bits(frame, bit_pos, crc, 8)
+    return bytes(frame), bit_pos, crc
+
+
+def bplm_frame_duration_us(data: bytes, bits: int) -> int:
+    """Return theoretical BPLM TX duration using firmware transport timing."""
+    duration = 0
+    for i in range(bits):
+        bit = (data[i // 8] >> (7 - (i % 8))) & 1
+        duration += 224 if bit else 160
+    return duration + 352
+
+
+def select_tx_frame_check(txn: Transaction) -> Optional[dict]:
+    """Compare a SELECT TX_FRAME line against the model-built frame."""
+    if txn.section != "SELECT" or not txn.tx_frame:
+        return None
+    match = re.search(r"SELECT UID=([0-9A-Fa-f]{8}) CRC=([0-9A-Fa-f]{2})", txn.tx_desc)
+    if not match:
+        return None
+
+    uid = int(match.group(1), 16)
+    logged_crc = int(match.group(2), 16)
+    expected_frame, expected_bits, expected_crc = build_select_frame(uid)
+    expected_us = bplm_frame_duration_us(expected_frame, expected_bits)
+    return {
+        "ok": txn.tx_frame == expected_frame and txn.tx_frame_bits == expected_bits and
+        (txn.tx_frame_us == 0 or txn.tx_frame_us == expected_us) and
+        logged_crc == expected_crc,
+        "expected_frame": expected_frame,
+        "expected_bits": expected_bits,
+        "expected_crc": expected_crc,
+        "expected_us": expected_us,
+        "logged_frame": txn.tx_frame,
+        "logged_bits": txn.tx_frame_bits,
+        "logged_crc": logged_crc,
+        "logged_us": txn.tx_frame_us,
+    }
+
+
 # ============================================================
 # Trace file parser
 # ============================================================
@@ -287,11 +368,25 @@ def parse_trace(text: str) -> TraceFile:
         if stripped.startswith("TX:"):
             if current_txn:
                 current_txn.tx_desc = stripped
+                current_txn.tx_lines.append(stripped)
+            continue
+
+        if stripped.startswith("TX_FRAME:"):
+            if current_txn:
+                frame_match = re.search(
+                    r'frame=([0-9A-Fa-f ]+)\s+bits=(\d+)(?:\s+tx_us=(\d+))?', stripped)
+                if frame_match:
+                    current_txn.tx_frame = bytes.fromhex(frame_match.group(1))
+                    current_txn.tx_frame_bits = int(frame_match.group(2))
+                    if frame_match.group(3):
+                        current_txn.tx_frame_us = int(frame_match.group(3))
             continue
 
         # RX lines — start new capture
         if stripped.startswith("RX:"):
             current_capture = RxCapture()
+            if current_txn:
+                current_capture.tx_desc = current_txn.tx_desc
             m2 = re.search(r'mode=(\w+)', stripped)
             if m2:
                 current_capture.mode = m2.group(1)
@@ -300,6 +395,12 @@ def parse_trace(text: str) -> TraceFile:
                 pass  # edges will be parsed from EDGES line
             if current_txn:
                 current_txn.captures.append(current_capture)
+            continue
+
+        # ABORT lines
+        if stripped.startswith("ABORT:"):
+            if current_txn:
+                current_txn.abort = stripped
             continue
 
         # EDGES line
@@ -438,6 +539,36 @@ def analyze_auth_sequence(transactions: list) -> list:
     return findings
 
 
+def diagnose_select_transactions(transactions: list) -> list:
+    """Return high-level SELECT failure diagnoses."""
+    findings = []
+    for txn in transactions:
+        if txn.section != "SELECT":
+            continue
+
+        frame_check = select_tx_frame_check(txn)
+        timeout = "TIMEOUT" in txn.result
+        max_decode_bits = max((cap.decode_bits for cap in txn.captures), default=0)
+
+        if frame_check and not frame_check["ok"]:
+            findings.append(
+                "SELECT TX frame does not match the model; fix frame packing/CRC before RF tuning.")
+        elif frame_check and frame_check["ok"] and timeout and max_decode_bits == 0:
+            findings.append(
+                "SELECT frame matches model but no MC4K response was decoded; focus on "
+                "RF field/coil coupling or response-window timing.")
+        elif not frame_check and timeout and max_decode_bits == 0:
+            findings.append(
+                "SELECT timed out with no decoded MC4K response; trace lacks TX_FRAME, "
+                "so capture a new trace before separating frame bugs from RF/timing issues.")
+        elif timeout and max_decode_bits > 0:
+            findings.append(
+                f"SELECT produced only {max_decode_bits} decoded MC4K bits; inspect edge timing "
+                "and Manchester threshold/SOF alignment.")
+
+    return findings
+
+
 def verify_crc(data: bytes, bits: int, expected_crc: int) -> bool:
     """Verify CRC-8 on decoded data."""
     if len(data) * 8 < bits:
@@ -499,12 +630,31 @@ def generate_report(tf: TraceFile, show_edges: bool = False, redecode: bool = Fa
     for i, txn in enumerate(tf.transactions):
         lines.append(f"\n[{i+1}] {txn.section}")
         if txn.tx_desc:
-            lines.append(f"  {txn.tx_desc}")
+            for tx_line in txn.tx_lines or [txn.tx_desc]:
+                lines.append(f"  {tx_line}")
+        tx_frame_check = select_tx_frame_check(txn)
+        if tx_frame_check:
+            expected = " ".join(f"{b:02X}" for b in tx_frame_check["expected_frame"])
+            logged = " ".join(f"{b:02X}" for b in tx_frame_check["logged_frame"])
+            if tx_frame_check["ok"]:
+                tx_us = tx_frame_check["logged_us"] or tx_frame_check["expected_us"]
+                lines.append(
+                    f"  TX frame check: OK ({logged}, {tx_frame_check['logged_bits']} bits, "
+                    f"tx_us={tx_us})")
+            else:
+                lines.append(
+                    "  TX frame check: MISMATCH "
+                    f"logged={logged}/{tx_frame_check['logged_bits']}b "
+                    f"tx_us={tx_frame_check['logged_us'] or 'n/a'} "
+                    f"expected={expected}/{tx_frame_check['expected_bits']}b "
+                    f"expected_tx_us={tx_frame_check['expected_us']}"
+                )
 
         for j, cap in enumerate(txn.captures):
             edge_count = len(cap.edges)
+            tx_context = f" after {cap.tx_desc}" if cap.tx_desc else ""
             lines.append(
-                f"  Capture {j+1}: {edge_count} edges, mode={cap.mode}, "
+                f"  Capture {j+1}{tx_context}: {edge_count} edges, mode={cap.mode}, "
                 f"decoded={cap.decode_bits} bits"
             )
 
@@ -545,6 +695,8 @@ def generate_report(tf: TraceFile, show_edges: bool = False, redecode: bool = Fa
 
         if txn.result:
             lines.append(f"  {txn.result}")
+        if txn.abort:
+            lines.append(f"  {txn.abort}")
 
     # Authentication analysis
     lines.append("")
@@ -554,6 +706,14 @@ def generate_report(tf: TraceFile, show_edges: bool = False, redecode: bool = Fa
     auth_findings = analyze_auth_sequence(tf.transactions)
     for f_line in auth_findings:
         lines.append(f_line)
+
+    select_findings = diagnose_select_transactions(tf.transactions)
+    if select_findings:
+        lines.append("")
+        lines.append("-" * 40)
+        lines.append("SELECT Diagnosis")
+        lines.append("-" * 40)
+        lines.extend(select_findings)
 
     # Page table
     if tf.page_table:

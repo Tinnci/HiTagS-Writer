@@ -33,6 +33,109 @@ class AnalyzeTraceTests(unittest.TestCase):
         self.assertIn("Re-decode MC4K: 32 bits = 060000E8", report)
         self.assertNotIn("MISMATCH", report)
 
+    def test_report_preserves_multiple_tx_lines_in_one_transaction(self):
+        trace = """=== HiTag S Debug Trace ===
+
+--- UID_REQUEST ---
+  TX: UID_REQ_STD (5 bits, val=0x06)
+  RX: 2 edges mode=AC2K
+  EDGES: L:5 H:25000
+  DECODE: 0 bits
+  TX: UID_REQ_ADV1 (5 bits, val=0x19)
+  RX: 2 edges mode=AC2K
+  EDGES: L:5 H:25000
+  DECODE: 0 bits
+  TX: UID_REQ_ADV2 (5 bits, val=0x18)
+  RX: 2 edges mode=AC2K
+  EDGES: L:5 H:25000
+  DECODE: 0 bits
+  RESULT: TIMEOUT (no UID)
+"""
+
+        parsed = analyze_trace.parse_trace(trace)
+        report = analyze_trace.generate_report(parsed)
+
+        self.assertIn("TX: UID_REQ_STD", report)
+        self.assertIn("TX: UID_REQ_ADV1", report)
+        self.assertIn("TX: UID_REQ_ADV2", report)
+
+    def test_report_associates_captures_with_current_tx_and_abort_reason(self):
+        trace = """=== HiTag S Debug Trace ===
+
+--- UID_REQUEST ---
+  TX: UID_REQ_STD (5 bits, val=0x06)
+  RX: 2 edges mode=AC2K
+  EDGES: L:5 H:25000
+  DECODE: 0 bits
+  TX: UID_REQ_ADV1 (5 bits, val=0x19)
+  RX: 2 edges mode=AC2K
+  EDGES: L:5 H:25000
+  DECODE: 0 bits
+ABORT: UID request failed (result=1)
+"""
+
+        parsed = analyze_trace.parse_trace(trace)
+        report = analyze_trace.generate_report(parsed)
+
+        self.assertIn("Capture 1 after TX: UID_REQ_STD", report)
+        self.assertIn("Capture 2 after TX: UID_REQ_ADV1", report)
+        self.assertIn("ABORT: UID request failed", report)
+
+    def test_select_tx_frame_is_checked_against_model(self):
+        trace = """=== HiTag S Debug Trace ===
+
+--- SELECT ---
+  TX: SELECT UID=52810231 CRC=6F (45 bits, UID0..UID3)
+  TX_FRAME: frame=02 94 08 11 8B 78 bits=45 tx_us=8512
+  RX: 2 edges mode=MC4K
+  EDGES: L:5 H:14995
+  DECODE: 0 bits
+  RESULT: TIMEOUT (0 bits)
+"""
+
+        parsed = analyze_trace.parse_trace(trace)
+        report = analyze_trace.generate_report(parsed)
+
+        self.assertIn("TX frame check: OK", report)
+        self.assertIn("tx_us=8512", report)
+
+    def test_select_tx_frame_mismatch_is_reported(self):
+        trace = """=== HiTag S Debug Trace ===
+
+--- SELECT ---
+  TX: SELECT UID=52810231 CRC=6F (45 bits, UID0..UID3)
+  TX_FRAME: frame=02 94 08 11 8B 00 bits=45 tx_us=9999
+  RESULT: TIMEOUT (0 bits)
+"""
+
+        parsed = analyze_trace.parse_trace(trace)
+        report = analyze_trace.generate_report(parsed)
+
+        self.assertIn("TX frame check: MISMATCH", report)
+        self.assertIn("expected=02 94 08 11 8B 78", report)
+        self.assertIn("expected_tx_us=8512", report)
+
+    def test_select_timeout_with_valid_frame_is_diagnosed_as_rf_or_response_window(self):
+        trace = """=== HiTag S Debug Trace ===
+
+--- UID_REQUEST ---
+  RESULT: OK, UID=52810231 (mode=STD, AC2K)
+
+--- SELECT ---
+  TX: SELECT UID=52810231 CRC=6F (45 bits, UID0..UID3)
+  TX_FRAME: frame=02 94 08 11 8B 78 bits=45 tx_us=8512
+  RX: 2 edges mode=MC4K
+  EDGES: L:5 H:14995
+  DECODE: 0 bits
+  RESULT: TIMEOUT (0 bits)
+"""
+
+        parsed = analyze_trace.parse_trace(trace)
+        report = analyze_trace.generate_report(parsed)
+
+        self.assertIn("SELECT frame matches model but no MC4K response was decoded", report)
+        self.assertIn("RF field/coil coupling or response-window timing", report)
+
     def test_trace_replay_recovers_real_ac2k_uid(self):
         trace_path = Path(__file__).resolve().parents[1] / "trace_device_52810231_pm3timing.htsd"
         if not trace_path.exists():
@@ -121,6 +224,36 @@ class AnalyzeTraceTests(unittest.TestCase):
                             accepted_uids.add(data[:4].hex().upper())
 
             self.assertEqual(accepted_uids, expected_uids, fixture_name)
+
+    def test_batch_uid_candidate_summary_matches_hardware_trace_fixtures(self):
+        fixture_names = {
+            "trace_device_00000000.htsd": set(),
+            "trace_device_00000000_after_idle_rx.htsd": set(),
+            "trace_device_00000000_current.htsd": set(),
+            "trace_device_00000000_current_after_inter_wait.htsd": set(),
+            "trace_device_00000000_new.htsd": set(),
+            "trace_device_00000000_reject_unreliable_uid.htsd": set(),
+            "trace_device_12810231_after_no_adv_fallback.htsd": set(),
+            "trace_device_28100000.htsd": set(),
+            "trace_device_48000000_new.htsd": {"52810231"},
+            "trace_device_52810231_new.htsd": {"52810231"},
+            "trace_device_52810231_pm3timing.htsd": {"52810231"},
+            "trace_device_74A0408C_new.htsd": set(),
+            "trace_device_D2810231_after_filter.htsd": set(),
+            "trace_device_D4A0408C_variants.htsd": set(),
+        }
+
+        for fixture_name, expected_uids in fixture_names.items():
+            trace_path = Path(__file__).resolve().parents[1] / fixture_name
+            if not trace_path.exists():
+                self.skipTest(f"hardware trace fixture not present: {fixture_name}")
+
+            parsed = analyze_trace.parse_trace(trace_path.read_text())
+            self.assertEqual(
+                analyze_trace.accepted_uid_candidates(parsed),
+                expected_uids,
+                fixture_name,
+            )
 
 
 if __name__ == "__main__":
