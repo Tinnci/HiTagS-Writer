@@ -23,6 +23,7 @@ typedef struct {
     size_t glitches;
     size_t long_gaps;
     size_t long_ac_periods;
+    bool startup_seen;
     bool too_noisy;
 } HitagSAc2kQuality;
 
@@ -53,6 +54,10 @@ bool hitag_s_codec_is_valid_ac2k_uid_capture(
     size_t edge_count);
 
 bool hitag_s_codec_is_marginal_ac2k_uid_quality(size_t bits, const HitagSAc2kQuality* quality);
+
+bool hitag_s_codec_is_low_entropy_uid(uint32_t uid);
+
+bool hitag_s_codec_is_acceptable_start01_uid(uint32_t uid, size_t votes, size_t partial_support);
 
 #ifdef __cplusplus
 }

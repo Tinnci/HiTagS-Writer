@@ -107,6 +107,28 @@ class SourceInvariantTests(unittest.TestCase):
         self.assertIn("pull=release", debug_read)
         self.assertIn("powerup_us=", debug_read)
 
+    def test_debug_read_abort_paths_emit_trace_summary_before_return(self):
+        source = (ROOT / "hitag_s_8268.c").read_text()
+        debug_read = source.split("HitagSResult hitag_s_debug_read_sequence", 1)[1]
+
+        self.assertIn("hitag_s_debug_read_finish", source)
+        self.assertIn("ABORT: UID request failed", debug_read)
+        self.assertIn("ABORT: SELECT failed", debug_read)
+        self.assertIn("ABORT: AUTH failed", debug_read)
+        self.assertGreaterEqual(debug_read.count("hitag_s_debug_read_finish("), 4)
+        self.assertEqual(debug_read.count("hitag_s_field_off()"), 0)
+
+    def test_em4100_write_verifies_final_config_page(self):
+        source = (ROOT / "hitag_s_8268.c").read_text()
+        write_em = source.split("HitagSResult hitag_s_8268_write_em4100_sequence", 1)[1].split(
+            "HitagSResult hitag_s_8268_read_sequence", 1
+        )[0]
+
+        self.assertIn("hitag_s_write_page_verify(4, em_data->data_hi)", write_em)
+        self.assertIn("hitag_s_write_page_verify(5, em_data->data_lo)", write_em)
+        self.assertIn("hitag_s_write_page_verify(1, new_config)", write_em)
+        self.assertNotIn("hitag_s_write_page(1, new_config)", write_em)
+
     def test_uid_request_trace_includes_packed_frame_bytes_for_model_comparison(self):
         source = (ROOT / "hitag_s_session.c").read_text()
         uid_request = source.split("HitagSResult hitag_s_uid_request", 1)[1].split(
@@ -138,6 +160,36 @@ class SourceInvariantTests(unittest.TestCase):
         self.assertIn("hitag_s_decode_ac2k_start01", source)
         self.assertIn("start01_consensus", uid_request)
         self.assertIn("RESULT: OK, UID=%08lX (mode=start01-consensus, AC2K)", uid_request)
+
+    def test_start01_fallback_is_scored_and_requires_select_verification(self):
+        source = (ROOT / "hitag_s_session.c").read_text()
+        uid_request = source.split("HitagSResult hitag_s_uid_request", 1)[1].split(
+            "static HitagSResult hitag_s_select_frame", 1
+        )[0]
+        select = source.split("static HitagSResult hitag_s_select_frame", 1)[1].split(
+            "HitagSResult hitag_s_8268_authenticate", 1
+        )[0]
+
+        self.assertIn("hitag_s_codec_is_acceptable_start01_uid", uid_request)
+        self.assertIn("hitag_s_codec_is_low_entropy_uid", uid_request)
+        self.assertIn("active_uid_requires_select_verification = true", uid_request)
+        self.assertIn("active_uid_requires_select_verification = false", uid_request)
+        self.assertIn("fallback UID unverified by SELECT", select)
+
+    def test_uid_request_tracks_partial_preamble_loss_and_cold_retries(self):
+        source = (ROOT / "hitag_s_session.c").read_text()
+        uid_request = source.split("HitagSResult hitag_s_uid_request", 1)[1].split(
+            "static HitagSResult hitag_s_select_frame", 1
+        )[0]
+
+        self.assertIn("hitag_s_capture_is_partial_uid_response", source)
+        self.assertIn("partial_uid_responses", uid_request)
+        self.assertIn("empty_uid_responses", uid_request)
+        self.assertIn("cold retry after repeated partial UID responses", uid_request)
+        self.assertIn("cold retry after repeated empty UID responses", uid_request)
+        self.assertIn("hitag_s_field_off()", uid_request)
+        self.assertIn("hitag_s_field_on()", uid_request)
+        self.assertIn("hitag_s_start01_votes_reset", uid_request)
 
     def test_all_uid_request_modes_decode_uid_without_extra_sof_strip(self):
         source = (ROOT / "hitag_s_session.c").read_text()

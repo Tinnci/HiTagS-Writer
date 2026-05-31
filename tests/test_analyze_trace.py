@@ -12,6 +12,10 @@ def mc4k_edge_text(value: int, sof_bits: int = 1) -> str:
     return " ".join(f"{'H' if level else 'L'}:{duration}" for level, duration in events)
 
 
+def ac2k_zero_start01_edge_text(periods: int = 31) -> str:
+    return " ".join(["L:5"] + ["L:512"] * periods + ["H:25000"])
+
+
 class AnalyzeTraceTests(unittest.TestCase):
     def test_std_mode_redecode_uses_one_sof_bit(self):
         trace = f"""=== HiTag S Debug Trace ===
@@ -380,12 +384,14 @@ Field ON: carrier=125000Hz duty=0.5 pull=release powerup_us=3000
 
         self.assertIn("Batch Summary", summary)
         self.assertIn(
-            "old.htsd | uid=- | accepted=- | marginal=- | start01=- | field=legacy | "
+            "old.htsd | uid=- | accepted=- | marginal=- | start01=- | partial_uid=0 | "
+            "empty_uid=0 | field=legacy | "
             "uid_tx=legacy | select_tx=legacy",
             summary,
         )
         self.assertIn(
-            "new.htsd | uid=- | accepted=- | marginal=- | start01=- | field=release | "
+            "new.htsd | uid=- | accepted=- | marginal=- | start01=- | partial_uid=0 | "
+            "empty_uid=0 | field=release | "
             "uid_tx=ok | select_tx=ok",
             summary,
         )
@@ -575,7 +581,7 @@ Field ON: carrier=125000Hz duty=0.5 pull=release powerup_us=3000
                 fixture_name,
             )
 
-    def test_latest_no_uid_trace_keeps_marginal_uid_for_firmware_fallback(self):
+    def test_latest_no_uid_trace_recovers_uid_after_startup_noise_filter(self):
         trace_path = (
             Path(__file__).resolve().parents[1] /
             "pulled_traces/flipper_Trace_NoUID_6A1C3A0A_15028b.htsd"
@@ -586,9 +592,9 @@ Field ON: carrier=125000Hz duty=0.5 pull=release powerup_us=3000
         parsed = analyze_trace.parse_trace(trace_path.read_text())
         summary = analyze_trace.generate_batch_summary([(str(trace_path), parsed)])
 
-        self.assertNotIn("52810231", analyze_trace.accepted_uid_candidates(parsed))
-        self.assertIn("52810231", analyze_trace.marginal_uid_candidates(parsed))
-        self.assertIn("uid-marginal-fallback", summary)
+        self.assertIn("52810231", analyze_trace.accepted_uid_candidates(parsed))
+        self.assertNotIn("52810231", analyze_trace.marginal_uid_candidates(parsed))
+        self.assertIn("uid-offline-recovered", summary)
 
     def test_latest_no_uid_trace_recovers_uid_from_start01_consensus(self):
         trace_path = (
@@ -612,6 +618,100 @@ Field ON: carrier=125000Hz duty=0.5 pull=release powerup_us=3000
         parsed = analyze_trace.parse_trace(trace_path.read_text())
 
         self.assertIsNone(analyze_trace.start01_uid_consensus(parsed))
+
+    def test_latest_no_uid_trace_is_diagnosed_as_uid_preamble_loss(self):
+        trace_path = (
+            Path(__file__).resolve().parents[1] /
+            "pulled_traces/flipper_Trace_NoUID_6A1C3EEC_15296b.htsd"
+        )
+        if not trace_path.exists():
+            self.skipTest("latest hardware trace fixture not present")
+
+        parsed = analyze_trace.parse_trace(trace_path.read_text())
+        summary = analyze_trace.generate_batch_summary([(str(trace_path), parsed)])
+
+        self.assertGreaterEqual(analyze_trace.partial_uid_response_count(parsed), 8)
+        self.assertIn("uid-preamble-loss", summary)
+        self.assertNotIn("uid-rf-or-window", summary)
+
+    def test_cold_retry_trace_is_diagnosed_as_empty_uid_responses(self):
+        trace = """=== HiTag S Debug Trace ===
+
+=== DEBUG READ SEQUENCE ===
+Field ON: carrier=125000Hz duty=0.5 pull=release powerup_us=3000
+
+--- UID_REQUEST ---
+  TX: UID_REQ_STD (5 bits, val=0x06)
+  TX_FRAME: frame=30 bits=5 tx_us=1280
+  RX_META: elapsed_us=25000 idle_us=0 timeout_us=25000 final_edges=2 early_rx=stop_tail
+  RX: 2 edges mode=AC2K
+  EDGES: L:5 H:25000
+  DECODE: 0 bits
+  RX_META: elapsed_us=25000 idle_us=0 timeout_us=25000 final_edges=2 early_rx=stop_tail
+  RX: 2 edges mode=AC2K
+  EDGES: L:5 H:25000
+  DECODE: 0 bits
+  RX_META: elapsed_us=25000 idle_us=0 timeout_us=25000 final_edges=2 early_rx=stop_tail
+  RX: 2 edges mode=AC2K
+  EDGES: L:5 H:25000
+  DECODE: 0 bits
+  RX_META: elapsed_us=25000 idle_us=0 timeout_us=25000 final_edges=2 early_rx=stop_tail
+  RX: 2 edges mode=AC2K
+  EDGES: L:5 H:25000
+  DECODE: 0 bits
+  RX_META: elapsed_us=25000 idle_us=0 timeout_us=25000 final_edges=2 early_rx=stop_tail
+  RX: 2 edges mode=AC2K
+  EDGES: L:5 H:25000
+  DECODE: 0 bits
+  RX_META: elapsed_us=25000 idle_us=0 timeout_us=25000 final_edges=2 early_rx=stop_tail
+  RX: 2 edges mode=AC2K
+  EDGES: L:5 H:25000
+  DECODE: 0 bits
+  RESULT: TIMEOUT (no UID)
+ABORT: UID request failed (result=1)
+"""
+
+        parsed = analyze_trace.parse_trace(trace)
+        summary = analyze_trace.generate_batch_summary([("empty.htsd", parsed)])
+
+        self.assertEqual(analyze_trace.empty_uid_response_count(parsed), 6)
+        self.assertIn("uid-empty-response", summary)
+        self.assertNotIn("uid-rf-or-window", summary)
+
+    def test_start01_low_entropy_false_uid_is_rejected_by_candidate_model(self):
+        captures = "\n".join(
+            f"""  RX: 33 edges mode=AC2K
+  EDGES: {ac2k_zero_start01_edge_text()}
+  DECODE: 31 bits = 00 00 00 00"""
+            for _ in range(8)
+        )
+        trace = f"""=== HiTag S Debug Trace ===
+
+=== DEBUG READ SEQUENCE ===
+Field ON: carrier=125000Hz duty=0.5 pull=release powerup_us=3000
+
+--- UID_REQUEST ---
+  TX: UID_REQ_STD (5 bits, val=0x06)
+  TX_FRAME: frame=30 bits=5 tx_us=1280
+{captures}
+  RESULT: TIMEOUT (no UID)
+"""
+
+        parsed = analyze_trace.parse_trace(trace)
+        report = analyze_trace.generate_report(parsed)
+        summary = analyze_trace.generate_batch_summary([("zero_start01.htsd", parsed)])
+        candidates = analyze_trace.uid_candidate_summary(parsed)
+
+        self.assertIsNone(analyze_trace.start01_uid_consensus(parsed))
+        self.assertIn("40000000", report)
+        self.assertIn("low-entropy", report)
+        self.assertIn("uid-fallback-low-entropy-rejected", summary)
+        self.assertTrue(
+            any(
+                candidate.uid == "40000000" and candidate.reject_reason == "low-entropy"
+                for candidate in candidates
+            )
+        )
 
 
 if __name__ == "__main__":

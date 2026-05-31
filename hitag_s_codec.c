@@ -11,6 +11,8 @@
 #define HITAG_S_CODEC_T_1_CYCLES    28U
 #define HITAG_S_CODEC_T_LOW_CYCLES  8U
 #define HITAG_S_CODEC_T_STOP_CYCLES 36U
+#define HITAG_S_START01_MIN_VOTES   8U
+#define HITAG_S_START01_MIN_PARTIAL 4U
 
 uint8_t hitag_s_codec_crc8(const uint8_t* data, size_t bits) {
     uint8_t crc = 0xFF;
@@ -114,6 +116,11 @@ uint32_t hitag_s_codec_bplm_frame_duration_us(const uint8_t* data, size_t bits) 
 void hitag_s_codec_ac2k_quality_add(HitagSAc2kQuality* quality, bool level, uint32_t duration) {
     if(level) return;
 
+    if(!quality->startup_seen) {
+        quality->startup_seen = true;
+        return;
+    }
+
     if(duration < HITAG_S_AC2K_GLITCH_US) {
         quality->glitches++;
     } else if(duration > 1100U) {
@@ -146,4 +153,24 @@ bool hitag_s_codec_is_valid_ac2k_uid_capture(
 
 bool hitag_s_codec_is_marginal_ac2k_uid_quality(size_t bits, const HitagSAc2kQuality* quality) {
     return bits == 32 && quality->glitches <= 2 && quality->long_ac_periods <= 1;
+}
+
+static size_t hitag_s_codec_uid_popcount(uint32_t uid) {
+    size_t count = 0;
+    while(uid) {
+        count += uid & 1U;
+        uid >>= 1;
+    }
+    return count;
+}
+
+bool hitag_s_codec_is_low_entropy_uid(uint32_t uid) {
+    size_t popcount = hitag_s_codec_uid_popcount(uid);
+    return popcount <= 2 || popcount >= 30 || uid == 0x00000000UL || uid == 0x40000000UL ||
+           uid == 0x60000000UL || uid == 0x80000000UL || uid == 0xFFFFFFFFUL;
+}
+
+bool hitag_s_codec_is_acceptable_start01_uid(uint32_t uid, size_t votes, size_t partial_support) {
+    return votes >= HITAG_S_START01_MIN_VOTES && partial_support >= HITAG_S_START01_MIN_PARTIAL &&
+           !hitag_s_codec_is_low_entropy_uid(uid);
 }

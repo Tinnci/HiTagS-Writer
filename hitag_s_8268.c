@@ -330,6 +330,41 @@ HitagSResult hitag_s_8268_wipe_sequence(uint32_t password, int max_page, int* pa
     return HitagSResultOk;
 }
 
+static HitagSResult hitag_s_debug_read_finish(
+    HitagSResult result,
+    uint32_t uid,
+    const uint32_t* pages,
+    const bool* page_valid,
+    int max_page) {
+    int safe_max_page = max_page;
+    if(safe_max_page < 0) safe_max_page = 0;
+    if(safe_max_page >= HITAG_S_MAX_PAGES) safe_max_page = HITAG_S_MAX_PAGES - 1;
+
+    int read_count = 0;
+    for(int p = 0; p <= safe_max_page; p++) {
+        if(page_valid[p]) read_count++;
+    }
+
+    trace_append(
+        "\n=== SUMMARY: %d/%d pages read, UID=%08lX, result=%d ===\n",
+        read_count,
+        safe_max_page + 1,
+        (unsigned long)uid,
+        (int)result);
+    trace_append("\nPAGE TABLE:\n");
+    for(int p = 0; p <= safe_max_page; p++) {
+        if(page_valid[p]) {
+            trace_append("  [%2d] %08lX\n", p, (unsigned long)pages[p]);
+        } else {
+            trace_append("  [%2d] --------\n", p);
+        }
+    }
+
+    hitag_s_field_off();
+    trace_append("Field OFF\n");
+    return result;
+}
+
 HitagSResult hitag_s_debug_read_sequence(
     uint32_t* uid_out,
     uint32_t* config_out,
@@ -347,8 +382,7 @@ HitagSResult hitag_s_debug_read_sequence(
     HitagSResult result = hitag_s_uid_request(&uid);
     if(result != HitagSResultOk) {
         trace_append("ABORT: UID request failed (result=%d)\n", (int)result);
-        hitag_s_field_off();
-        return result;
+        return hitag_s_debug_read_finish(result, uid, pages, page_valid, 0);
     }
 
     if(uid_out) *uid_out = uid;
@@ -358,8 +392,7 @@ HitagSResult hitag_s_debug_read_sequence(
     result = hitag_s_select(uid, &config);
     if(result != HitagSResultOk) {
         trace_append("ABORT: SELECT failed (result=%d)\n", (int)result);
-        hitag_s_field_off();
-        return result;
+        return hitag_s_debug_read_finish(result, uid, pages, page_valid, 0);
     }
     if(config_out) *config_out = config;
 
@@ -380,8 +413,7 @@ HitagSResult hitag_s_debug_read_sequence(
     result = hitag_s_8268_authenticate_multi(NULL, 0);
     if(result != HitagSResultOk) {
         trace_append("ABORT: AUTH failed (result=%d)\n", (int)result);
-        hitag_s_field_off();
-        return result;
+        return hitag_s_debug_read_finish(result, uid, pages, page_valid, max_pg);
     }
 
     result = hitag_s_read_page(1, &pages[1]);
@@ -407,25 +439,5 @@ HitagSResult hitag_s_debug_read_sequence(
         page_valid[p] = false;
     }
 
-    int read_count = 0;
-    for(int p = 0; p <= max_pg; p++) {
-        if(page_valid[p]) read_count++;
-    }
-    trace_append(
-        "\n=== SUMMARY: %d/%d pages read, UID=%08lX ===\n",
-        read_count,
-        max_pg + 1,
-        (unsigned long)uid);
-    trace_append("\nPAGE TABLE:\n");
-    for(int p = 0; p <= max_pg; p++) {
-        if(page_valid[p]) {
-            trace_append("  [%2d] %08lX\n", p, (unsigned long)pages[p]);
-        } else {
-            trace_append("  [%2d] --------\n", p);
-        }
-    }
-
-    hitag_s_field_off();
-    trace_append("Field OFF\n");
-    return HitagSResultOk;
+    return hitag_s_debug_read_finish(HitagSResultOk, uid, pages, page_valid, max_pg);
 }

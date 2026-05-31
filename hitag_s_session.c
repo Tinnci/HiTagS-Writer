@@ -267,6 +267,11 @@ static bool hitag_s_capture_is_marginal_uid_candidate(const HitagSCapture* cap) 
     return hitag_s_codec_is_marginal_ac2k_uid_quality(32, &quality);
 }
 
+static bool hitag_s_capture_is_partial_uid_response(const HitagSCapture* cap, size_t rx_bits) {
+    HitagSAc2kQuality quality = hitag_s_capture_ac2k_quality(cap);
+    return rx_bits >= 27 && rx_bits < 32 && quality.usable_periods >= 27 && quality.long_gaps >= 1;
+}
+
 /**
  * @brief Decode MC4K Manchester response (used after SELECT)
  *
@@ -590,6 +595,7 @@ static const HitagSProtoMode proto_modes[] = {
     {0x18, "ADV2", 0, 6, true}, /* UID response uses raw 32-bit AC2K UID */
 };
 static size_t active_mode_idx = 0;
+static bool active_uid_requires_select_verification = false;
 
 static inline size_t hitag_s_data_sof(void) {
     return proto_modes[active_mode_idx].data_sof;
@@ -605,9 +611,19 @@ typedef struct {
     size_t votes;
 } HitagSStart01Vote;
 
+static void hitag_s_start01_votes_reset(HitagSStart01Vote* votes, size_t vote_count) {
+    for(size_t i = 0; i < vote_count; i++) {
+        votes[i].uid = 0;
+        votes[i].votes = 0;
+    }
+}
+
 HitagSResult hitag_s_uid_request(uint32_t* uid) {
     trace_append("\n--- UID_REQUEST ---\n");
     HitagSStart01Vote start01_consensus[HITAG_S_START01_CONSENSUS_MAX] = {0};
+    size_t partial_uid_responses = 0;
+    size_t empty_uid_responses = 0;
+    bool cold_retry_done = false;
 
     /* Try Proxmark's 8268 write mode first, then fall back to other observed modes. */
     for(size_t c = 0; c < COUNT_OF(proto_modes); c++) {
@@ -705,6 +721,7 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
 
                 *uid = current_uid;
                 active_mode_idx = c;
+                active_uid_requires_select_verification = false;
                 FURI_LOG_I(
                     TAG,
                     "UID: %08lX (via %s mode, AC2K)",
@@ -717,6 +734,23 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
                 return HitagSResultOk;
             } else if(rx_bits > 0) {
                 had_decode = true;
+                if(hitag_s_capture_is_partial_uid_response(&hs_capture, rx_bits)) {
+                    partial_uid_responses++;
+                    trace_append(
+                        "  %s: partial UID response (%d bits, count=%d)\n",
+                        proto_modes[c].name,
+                        (int)rx_bits,
+                        (int)partial_uid_responses);
+                    if(partial_uid_responses >= 6 && !cold_retry_done) {
+                        trace_append("  cold retry after repeated partial UID responses\n");
+                        hitag_s_start01_votes_reset(
+                            start01_consensus, COUNT_OF(start01_consensus));
+                        hitag_s_field_off();
+                        furi_delay_ms(50);
+                        hitag_s_field_on();
+                        cold_retry_done = true;
+                    }
+                }
                 if(hitag_s_capture_has_excessive_glitches(&hs_capture)) {
                     FURI_LOG_W(
                         TAG,
@@ -726,6 +760,21 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
                         (int)rx_bits);
                     trace_append("  %s: rejected noisy AC2K capture\n", proto_modes[c].name);
                 }
+            } else if(hs_capture.edge_count <= 2) {
+                empty_uid_responses++;
+                trace_append(
+                    "  %s: empty UID response (edges=%d, count=%d)\n",
+                    proto_modes[c].name,
+                    (int)hs_capture.edge_count,
+                    (int)empty_uid_responses);
+                if(empty_uid_responses >= 6 && !cold_retry_done) {
+                    trace_append("  cold retry after repeated empty UID responses\n");
+                    hitag_s_start01_votes_reset(start01_consensus, COUNT_OF(start01_consensus));
+                    hitag_s_field_off();
+                    furi_delay_ms(80);
+                    hitag_s_field_on();
+                    cold_retry_done = true;
+                }
             }
 
             furi_delay_us(HITAG_S_T_WAIT_SC_US);
@@ -734,6 +783,7 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
         if(marginal_uid_valid) {
             *uid = marginal_uid;
             active_mode_idx = c;
+            active_uid_requires_select_verification = true;
             FURI_LOG_W(
                 TAG,
                 "UID: %08lX (via %s mode, marginal noisy AC2K)",
@@ -758,9 +808,11 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
     }
 
     for(size_t v = 0; v < COUNT_OF(start01_consensus); v++) {
-        if(start01_consensus[v].votes >= HITAG_S_START01_CONSENSUS_MIN) {
+        if(hitag_s_codec_is_acceptable_start01_uid(
+               start01_consensus[v].uid, start01_consensus[v].votes, partial_uid_responses)) {
             *uid = start01_consensus[v].uid;
             active_mode_idx = 0;
+            active_uid_requires_select_verification = true;
             FURI_LOG_W(
                 TAG,
                 "UID: %08lX via start01 consensus (%d votes)",
@@ -771,6 +823,23 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
             trace_append(
                 "  start01: using consensus UID with %d votes\n", (int)start01_consensus[v].votes);
             return HitagSResultOk;
+        } else if(start01_consensus[v].votes >= HITAG_S_START01_CONSENSUS_MIN) {
+            const char* reason = hitag_s_codec_is_low_entropy_uid(start01_consensus[v].uid) ?
+                                     "low-entropy" :
+                                     "insufficient-partial-support";
+            FURI_LOG_W(
+                TAG,
+                "start01: rejected UID %08lX (%s, votes=%d partial=%d)",
+                (unsigned long)start01_consensus[v].uid,
+                reason,
+                (int)start01_consensus[v].votes,
+                (int)partial_uid_responses);
+            trace_append(
+                "  start01: rejected UID=%08lX reason=%s votes=%d partial=%d\n",
+                (unsigned long)start01_consensus[v].uid,
+                reason,
+                (int)start01_consensus[v].votes,
+                (int)partial_uid_responses);
         }
     }
 
@@ -809,6 +878,9 @@ static HitagSResult hitag_s_select_frame(uint32_t uid, uint32_t* config, const c
     if(rx_bits < 32) {
         FURI_LOG_W(TAG, "SELECT: only %d bits received", (int)rx_bits);
         trace_append("  RESULT: TIMEOUT (%d bits)\n", (int)rx_bits);
+        if(active_uid_requires_select_verification) {
+            trace_append("  fallback UID unverified by SELECT\n");
+        }
         return HitagSResultTimeout;
     }
 
@@ -829,6 +901,7 @@ static HitagSResult hitag_s_select_frame(uint32_t uid, uint32_t* config, const c
 
     FURI_LOG_I(TAG, "Config page: %08lX", (unsigned long)*config);
     trace_append("  RESULT: OK, Config=%08lX\n", (unsigned long)*config);
+    active_uid_requires_select_verification = false;
     return HitagSResultOk;
 }
 
@@ -849,6 +922,9 @@ HitagSResult hitag_s_select(uint32_t uid, uint32_t* config) {
         }
     }
 
+    if(active_uid_requires_select_verification) {
+        active_uid_requires_select_verification = false;
+    }
     return last_result;
 }
 

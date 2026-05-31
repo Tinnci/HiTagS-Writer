@@ -89,6 +89,15 @@ class Mc4kSweepCandidate:
     sof_bits: int = 0
 
 
+@dataclass
+class UidCandidate:
+    uid: str
+    source: str
+    score: int
+    support: int
+    reject_reason: str = ""
+
+
 def parse_edges(edge_line: str) -> list:
     """Parse 'EDGES: H:523 L:245 H:130 ...' into Edge list."""
     edges = []
@@ -306,9 +315,13 @@ def ac2k_quality(edges: list) -> dict:
     glitches = 0
     long_gaps = 0
     long_ac_periods = 0
+    startup_seen = False
 
     for e in edges:
         if e.level == "H":
+            continue
+        if not startup_seen:
+            startup_seen = True
             continue
         if e.duration < 80:
             glitches += 1
@@ -325,6 +338,7 @@ def ac2k_quality(edges: list) -> dict:
         "glitches": glitches,
         "long_gaps": long_gaps,
         "long_ac_periods": long_ac_periods,
+        "startup_seen": startup_seen,
         "too_noisy": glitches > 1 or long_ac_periods > 1,
     }
 
@@ -340,60 +354,116 @@ def is_marginal_ac2k_uid_capture(bits: int, edges: list) -> bool:
     return bits == 32 and quality["glitches"] <= 2 and quality["long_ac_periods"] <= 1
 
 
-def accepted_uid_candidates(tf) -> set:
-    """Return clean 32-bit AC2K UID candidates from a parsed trace."""
-    accepted = set()
+def uid_popcount(uid: int) -> int:
+    return uid.bit_count()
+
+
+def is_low_entropy_uid(uid: int) -> bool:
+    popcount = uid_popcount(uid)
+    return (
+        popcount <= 2
+        or popcount >= 30
+        or uid in {0x00000000, 0x40000000, 0x60000000, 0x80000000, 0xFFFFFFFF}
+    )
+
+
+def _uid_hex(data: bytes) -> str:
+    return data[:4].hex().upper()
+
+
+def uid_candidate_summary(
+    tf,
+    min_start01_votes: int = 8,
+    min_start01_partial_support: int = 4,
+) -> list[UidCandidate]:
+    """Return modeled UID candidates with scores and rejection reasons."""
+    candidates: list[UidCandidate] = []
+    start01_votes: dict[str, int] = {}
+    partial_support = partial_uid_response_count(tf)
+
     for txn in tf.transactions:
         if txn.section != "UID_REQUEST":
             continue
         for cap in txn.captures:
             if cap.mode != "AC2K":
                 continue
+
             bits, data = decode_ac2k(cap.edges, sof_bits=0)
-            if is_valid_ac2k_uid_capture(bits, cap.edges):
-                accepted.add(data[:4].hex().upper())
-    return accepted
+            if bits == 32 and is_valid_ac2k_uid_capture(bits, cap.edges):
+                candidates.append(UidCandidate(_uid_hex(data), "clean-ac2k", 100, 1))
+            elif bits == 32 and is_marginal_ac2k_uid_capture(bits, cap.edges):
+                candidates.append(UidCandidate(_uid_hex(data), "marginal-ac2k", 70, 1))
+
+            start01_bits, start01_data = decode_ac2k_start01(cap.edges)
+            if start01_bits == 32:
+                uid = _uid_hex(start01_data)
+                start01_votes[uid] = start01_votes.get(uid, 0) + 1
+
+    for uid, votes in sorted(start01_votes.items()):
+        uid_int = int(uid, 16)
+        reject_reason = ""
+        score = 20 + min(votes, 12) * 4 + min(partial_support, 8) * 4
+        if is_low_entropy_uid(uid_int):
+            reject_reason = "low-entropy"
+        elif votes < min_start01_votes:
+            reject_reason = "low-votes"
+        elif partial_support < min_start01_partial_support:
+            reject_reason = "insufficient-partial-support"
+        candidates.append(
+            UidCandidate(uid, "start01", score, votes + partial_support, reject_reason))
+
+    return candidates
+
+
+def accepted_uid_candidates(tf) -> set:
+    """Return clean 32-bit AC2K UID candidates from a parsed trace."""
+    return {c.uid for c in uid_candidate_summary(tf) if c.source == "clean-ac2k"}
 
 
 def marginal_uid_candidates(tf) -> set:
     """Return noisy but complete AC2K UID candidates that firmware may use as fallback."""
-    candidates = set()
-    for txn in tf.transactions:
-        if txn.section != "UID_REQUEST":
-            continue
-        for cap in txn.captures:
-            if cap.mode != "AC2K":
-                continue
-            bits, data = decode_ac2k(cap.edges, sof_bits=0)
-            if (
-                not is_valid_ac2k_uid_capture(bits, cap.edges)
-                and is_marginal_ac2k_uid_capture(bits, cap.edges)
-            ):
-                candidates.add(data[:4].hex().upper())
-    return candidates
+    return {c.uid for c in uid_candidate_summary(tf) if c.source == "marginal-ac2k"}
 
 
 def start01_uid_consensus(tf, min_votes: int = 8) -> Optional[tuple[str, int]]:
     """Return a high-vote start01 fallback UID candidate, if one is present."""
-    votes = {}
+    candidates = [
+        c for c in uid_candidate_summary(tf, min_start01_votes=min_votes)
+        if c.source == "start01" and not c.reject_reason
+    ]
+    if not candidates:
+        return None
+    candidate = max(candidates, key=lambda item: item.score)
+    return candidate.uid, candidate.support - partial_uid_response_count(tf)
+
+
+def partial_uid_response_count(tf) -> int:
+    """Count AC2K UID captures that look like truncated UID responses."""
+    count = 0
     for txn in tf.transactions:
         if txn.section != "UID_REQUEST":
             continue
         for cap in txn.captures:
             if cap.mode != "AC2K":
                 continue
-            bits, data = decode_ac2k_start01(cap.edges)
-            if bits == 32:
-                uid = data[:4].hex().upper()
-                votes[uid] = votes.get(uid, 0) + 1
+            bits, _ = decode_ac2k(cap.edges, sof_bits=0)
+            if 28 <= bits < 32:
+                count += 1
+    return count
 
-    if not votes:
-        return None
 
-    uid, count = max(votes.items(), key=lambda item: item[1])
-    if count >= min_votes:
-        return uid, count
-    return None
+def empty_uid_response_count(tf) -> int:
+    """Count UID captures with only the capture-start edge and no tag modulation."""
+    count = 0
+    for txn in tf.transactions:
+        if txn.section != "UID_REQUEST":
+            continue
+        for cap in txn.captures:
+            if cap.mode != "AC2K":
+                continue
+            if cap.decode_bits == 0 and 0 < cap.rx_final_edges <= 2:
+                count += 1
+    return count
 
 
 def pack_bits(buf: bytearray, bit_pos: int, value: int, n_bits: int) -> int:
@@ -1002,6 +1072,22 @@ def generate_report(tf: TraceFile, show_edges: bool = False, redecode: bool = Fa
         lines.append("-" * 40)
         lines.extend(select_findings)
 
+    uid_candidates = uid_candidate_summary(tf)
+    if uid_candidates:
+        lines.append("")
+        lines.append("-" * 40)
+        lines.append("UID Candidate Model")
+        lines.append("-" * 40)
+        for candidate in sorted(
+            uid_candidates,
+            key=lambda item: (item.reject_reason != "", -item.score, item.uid, item.source),
+        ):
+            status = f"rejected:{candidate.reject_reason}" if candidate.reject_reason else "usable"
+            lines.append(
+                f"{candidate.uid} | source={candidate.source} | score={candidate.score} | "
+                f"support={candidate.support} | {status}"
+            )
+
     # Page table
     if tf.page_table:
         lines.append("")
@@ -1069,6 +1155,9 @@ def _batch_hint(
     accepted: set[str],
     marginal: set[str],
     start01_consensus: Optional[tuple[str, int]],
+    rejected_low_entropy_start01: bool,
+    partial_uid_count: int,
+    empty_uid_count: int,
 ) -> str:
     """Return the next investigation target for one trace row."""
     if tf.field_pull == "" or uid_tx == "legacy" or select_tx == "legacy":
@@ -1087,6 +1176,12 @@ def _batch_hint(
         return "uid-marginal-fallback"
     if tf.uid is None and not accepted and not marginal and start01_consensus:
         return "uid-start01-consensus"
+    if tf.uid is None and rejected_low_entropy_start01:
+        return "uid-fallback-low-entropy-rejected"
+    if tf.uid is None and partial_uid_count >= 8:
+        return "uid-preamble-loss"
+    if tf.uid is None and empty_uid_count >= 6:
+        return "uid-empty-response"
     if tf.uid is None and not accepted:
         return "uid-rf-or-window"
     if select_tx == "ok" and select_bits == 0:
@@ -1114,8 +1209,13 @@ def generate_batch_summary(named_traces: list[tuple[str, TraceFile]]) -> str:
         accepted = ",".join(sorted(accepted_set)) or "-"
         marginal_set = marginal_uid_candidates(tf)
         marginal = ",".join(sorted(marginal_set)) or "-"
+        uid_candidates = uid_candidate_summary(tf)
         start01_consensus = start01_uid_consensus(tf)
         start01 = f"{start01_consensus[0]}:{start01_consensus[1]}" if start01_consensus else "-"
+        rejected_low_entropy_start01 = any(
+            c.source == "start01" and c.reject_reason == "low-entropy" for c in uid_candidates)
+        partial_uid_count = partial_uid_response_count(tf)
+        empty_uid_count = empty_uid_response_count(tf)
         field = tf.field_pull or "legacy"
 
         uid_caps = [
@@ -1141,11 +1241,15 @@ def generate_batch_summary(named_traces: list[tuple[str, TraceFile]]) -> str:
             select_sweep_bits,
             accepted_set,
             marginal_set,
-            start01_consensus)
+            start01_consensus,
+            rejected_low_entropy_start01,
+            partial_uid_count,
+            empty_uid_count)
 
         lines.append(
             f"{name} | uid={uid} | accepted={accepted} | marginal={marginal} | "
-            f"start01={start01} | field={field} | "
+            f"start01={start01} | partial_uid={partial_uid_count} | "
+            f"empty_uid={empty_uid_count} | field={field} | "
             f"uid_tx={uid_tx} | select_tx={select_tx} | select_bits={select_bits} | "
             f"select_sweep={select_sweep_bits} | {hint}"
         )
