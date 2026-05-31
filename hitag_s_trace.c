@@ -6,9 +6,11 @@
 #include "hitag_s_trace.h"
 #include <furi.h>
 #include <storage/storage.h>
+#include <stdio.h>
 
 #define TAG                       "HitagSTrace"
-#define HITAG_S_TRACE_MAX_BYTES   (48U * 1024U)
+#define HITAG_S_TRACE_MAX_BYTES   (12U * 1024U)
+#define HITAG_S_TRACE_APPEND_MAX  192U
 #define HITAG_S_TRACE_TRUNCATE_AT (HITAG_S_TRACE_MAX_BYTES - 96U)
 
 static FuriString* g_debug_trace = NULL;
@@ -35,7 +37,9 @@ void hitag_s_trace_vappend(const char* fmt, va_list args) {
         return;
     }
 
-    furi_string_cat_vprintf(g_debug_trace, fmt, args);
+    char append_buf[HITAG_S_TRACE_APPEND_MAX];
+    vsnprintf(append_buf, sizeof(append_buf), fmt, args);
+    furi_string_cat_str(g_debug_trace, append_buf);
     if(furi_string_size(g_debug_trace) >= HITAG_S_TRACE_TRUNCATE_AT) {
         furi_string_left(g_debug_trace, HITAG_S_TRACE_TRUNCATE_AT);
         furi_string_cat_str(g_debug_trace, "\n... TRACE TRUNCATED: memory budget reached ...\n");

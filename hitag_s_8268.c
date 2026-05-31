@@ -447,6 +447,15 @@ HitagSResult hitag_s_debug_read_sequence_ex(
             (unsigned long)(uint32_t)(furi_get_tick() - start_tick));
         result = hitag_s_open_session(&session);
         if(result == HitagSResultOk) break;
+        if(session_attempt == 1 || (session_attempt % 5) == 0) {
+            FURI_LOG_W(
+                TAG,
+                "Debug read still probing: attempt=%d elapsed=%lums free_heap=%d result=%d",
+                (int)session_attempt,
+                (unsigned long)(uint32_t)(furi_get_tick() - start_tick),
+                (int)memmgr_get_free_heap(),
+                (int)result);
+        }
         trace_append(
             "DEBUG_READ: session attempt %d failed (result=%d), retrying within budget\n",
             (int)session_attempt,

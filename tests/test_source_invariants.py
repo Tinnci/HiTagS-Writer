@@ -57,10 +57,12 @@ class SourceInvariantTests(unittest.TestCase):
     def test_trace_buffer_has_memory_budget_and_truncation_marker(self):
         source = (ROOT / "hitag_s_trace.c").read_text()
 
-        self.assertIn("HITAG_S_TRACE_MAX_BYTES", source)
+        self.assertRegex(source, r"HITAG_S_TRACE_MAX_BYTES\s+\(12U \* 1024U\)")
+        self.assertIn("HITAG_S_TRACE_APPEND_MAX", source)
         self.assertIn("g_trace_truncated", source)
         self.assertIn("TRACE TRUNCATED", source)
         self.assertIn("furi_string_left", source)
+        self.assertIn("vsnprintf", source)
 
     def test_rx_trace_limits_raw_edge_dump_size(self):
         source = (ROOT / "hitag_s_session.c").read_text()
@@ -70,7 +72,7 @@ class SourceInvariantTests(unittest.TestCase):
             1,
         )[0]
 
-        self.assertIn("HITAG_S_TRACE_MAX_EDGES_PER_RX", source)
+        self.assertRegex(source, r"HITAG_S_TRACE_MAX_EDGES_PER_RX\s+24")
         self.assertIn("trace_edge_count", send_receive)
         self.assertIn("truncated_edges", send_receive)
         self.assertNotIn("i < hs_capture.edge_count; i++", send_receive)
@@ -309,6 +311,8 @@ class SourceInvariantTests(unittest.TestCase):
         self.assertIn("session_attempt", debug_read_ex)
         self.assertIn("while(!hitag_s_debug_read_budget_expired", debug_read_ex)
         self.assertIn("DEBUG_READ: session attempt", debug_read_ex)
+        self.assertIn("memmgr_get_free_heap", debug_read_ex)
+        self.assertIn("Debug read still probing", debug_read_ex)
 
     def test_debug_read_does_not_offer_save_for_noise_only_trace(self):
         worker = (ROOT / "hitags_worker.c").read_text()
@@ -350,6 +354,7 @@ class SourceInvariantTests(unittest.TestCase):
         self.assertIn("low_entropy_rejects", uid_request)
         self.assertIn("noisy_rejects", uid_request)
         self.assertIn("partial_noisy_rejects", uid_request)
+        self.assertIn("!hitag_s_trace_is_active()", uid_request)
         self.assertNotIn("UID try %d: rejected low-entropy", uid_request)
         self.assertNotIn("UID try %d: rejected noisy", uid_request)
 

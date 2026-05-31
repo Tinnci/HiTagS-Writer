@@ -47,7 +47,7 @@ static void trace_append(const char* fmt, ...) {
 
 /* Maximum edges we can capture (128 bits × 2 edges/bit + SOF + margin) */
 #define HITAG_S_MAX_EDGES              512
-#define HITAG_S_TRACE_MAX_EDGES_PER_RX 96
+#define HITAG_S_TRACE_MAX_EDGES_PER_RX 24
 
 /* Edge capture context */
 typedef struct {
@@ -668,11 +668,13 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
         size_t bit_pos = 0;
         pack_bits(cmd, &bit_pos, proto_modes[c].cmd_5bit, 5);
 
-        FURI_LOG_I(
-            TAG,
-            "TX: UID_REQ_%s (5 bits, val=0x%02X)",
-            proto_modes[c].name,
-            proto_modes[c].cmd_5bit);
+        if(!hitag_s_trace_is_active()) {
+            FURI_LOG_I(
+                TAG,
+                "TX: UID_REQ_%s (5 bits, val=0x%02X)",
+                proto_modes[c].name,
+                proto_modes[c].cmd_5bit);
+        }
         trace_append(
             "  TX: UID_REQ_%s (5 bits, val=0x%02X)\n",
             proto_modes[c].name,
@@ -772,11 +774,13 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
                 *uid = current_uid;
                 active_mode_idx = c;
                 active_uid_requires_select_verification = false;
-                FURI_LOG_I(
-                    TAG,
-                    "UID: %08lX (via %s mode, AC2K)",
-                    (unsigned long)*uid,
-                    proto_modes[c].name);
+                if(!hitag_s_trace_is_active()) {
+                    FURI_LOG_I(
+                        TAG,
+                        "UID: %08lX (via %s mode, AC2K)",
+                        (unsigned long)*uid,
+                        proto_modes[c].name);
+                }
                 trace_append(
                     "  RESULT: OK, UID=%08lX (mode=%s, %s)\n",
                     (unsigned long)*uid,
@@ -842,11 +846,13 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
             *uid = marginal_uid;
             active_mode_idx = c;
             active_uid_requires_select_verification = true;
-            FURI_LOG_W(
-                TAG,
-                "UID: %08lX (via %s mode, marginal noisy AC2K)",
-                (unsigned long)*uid,
-                proto_modes[c].name);
+            if(!hitag_s_trace_is_active()) {
+                FURI_LOG_W(
+                    TAG,
+                    "UID: %08lX (via %s mode, marginal noisy AC2K)",
+                    (unsigned long)*uid,
+                    proto_modes[c].name);
+            }
             trace_append(
                 "  RESULT: OK, UID=%08lX (mode=%s, %s, marginal)\n",
                 (unsigned long)*uid,
@@ -857,19 +863,23 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
         }
 
         if(had_decode) {
-            FURI_LOG_W(
-                TAG,
-                "%s: UID unstable (low_entropy=%d noisy=%d partial_noisy=%d marginal=%d partial=%d empty=%d)",
-                proto_modes[c].name,
-                (int)low_entropy_rejects,
-                (int)noisy_rejects,
-                (int)partial_noisy_rejects,
-                (int)marginal_noisy_candidates,
-                (int)mode_partial_uid_responses,
-                (int)mode_empty_uid_responses);
+            if(!hitag_s_trace_is_active()) {
+                FURI_LOG_W(
+                    TAG,
+                    "%s: UID unstable (low_entropy=%d noisy=%d partial_noisy=%d marginal=%d partial=%d empty=%d)",
+                    proto_modes[c].name,
+                    (int)low_entropy_rejects,
+                    (int)noisy_rejects,
+                    (int)partial_noisy_rejects,
+                    (int)marginal_noisy_candidates,
+                    (int)mode_partial_uid_responses,
+                    (int)mode_empty_uid_responses);
+            }
             trace_append("  %s: UID decoded but unstable\n", proto_modes[c].name);
         } else {
-            FURI_LOG_W(TAG, "%s: no valid 32-bit UID response", proto_modes[c].name);
+            if(!hitag_s_trace_is_active()) {
+                FURI_LOG_W(TAG, "%s: no valid 32-bit UID response", proto_modes[c].name);
+            }
             trace_append("  %s: no valid UID response\n", proto_modes[c].name);
         }
         furi_delay_us(HITAG_S_T_WAIT_SC_US);
@@ -881,11 +891,13 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
             *uid = start01_consensus[v].uid;
             active_mode_idx = COUNT_OF(proto_modes) - 1;
             active_uid_requires_select_verification = true;
-            FURI_LOG_W(
-                TAG,
-                "UID: %08lX via start01 consensus (%d votes)",
-                (unsigned long)*uid,
-                (int)start01_consensus[v].votes);
+            if(!hitag_s_trace_is_active()) {
+                FURI_LOG_W(
+                    TAG,
+                    "UID: %08lX via start01 consensus (%d votes)",
+                    (unsigned long)*uid,
+                    (int)start01_consensus[v].votes);
+            }
             trace_append(
                 "  RESULT: OK, UID=%08lX (mode=start01-consensus, AC2K)\n", (unsigned long)*uid);
             trace_append(
@@ -895,13 +907,15 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
             const char* reason = hitag_s_codec_is_low_entropy_uid(start01_consensus[v].uid) ?
                                      "low-entropy" :
                                      "insufficient-partial-support";
-            FURI_LOG_W(
-                TAG,
-                "start01: rejected UID %08lX (%s, votes=%d partial=%d)",
-                (unsigned long)start01_consensus[v].uid,
-                reason,
-                (int)start01_consensus[v].votes,
-                (int)partial_uid_responses);
+            if(!hitag_s_trace_is_active()) {
+                FURI_LOG_W(
+                    TAG,
+                    "start01: rejected UID %08lX (%s, votes=%d partial=%d)",
+                    (unsigned long)start01_consensus[v].uid,
+                    reason,
+                    (int)start01_consensus[v].votes,
+                    (int)partial_uid_responses);
+            }
             trace_append(
                 "  start01: rejected UID=%08lX reason=%s votes=%d partial=%d\n",
                 (unsigned long)start01_consensus[v].uid,
