@@ -99,7 +99,11 @@ static size_t hitag_s_decode_ac2k(
     const HitagSCapture* cap,
     uint8_t* out_data,
     size_t max_bits,
-    size_t sof_bits) {
+    size_t sof_bits,
+    uint32_t thresh_23_us,
+    uint32_t thresh_34_us,
+    uint32_t glitch_us,
+    const char* mode_name) {
     memset(out_data, 0, (max_bits + 7) / 8);
 
     int lastbit = 0;
@@ -121,18 +125,17 @@ static size_t hitag_s_decode_ac2k(
             continue;
         }
 
-        if(rb < HITAG_S_AC2K_GLITCH_US) continue;
+        if(rb < glitch_us) continue;
 
         /* Log first 10 periods for debugging */
         if(period_count < 10) {
-            const char* cls = (rb >= HITAG_S_AC2K_THRESH_34_US) ? "4H" :
-                              (rb >= HITAG_S_AC2K_THRESH_23_US) ? "3H" :
-                                                                  "2H";
-            FURI_LOG_I(TAG, "AC2K p[%d]: %lu (%s)", (int)period_count, (unsigned long)rb, cls);
+            const char* cls = (rb >= thresh_34_us) ? "4H" : (rb >= thresh_23_us) ? "3H" : "2H";
+            FURI_LOG_I(
+                TAG, "%s p[%d]: %lu (%s)", mode_name, (int)period_count, (unsigned long)rb, cls);
         }
         period_count++;
 
-        if(rb >= HITAG_S_AC2K_THRESH_34_US) {
+        if(rb >= thresh_34_us) {
             /* FOUR_HALF: one '0' bit */
             lastbit = 0;
             total_bits++;
@@ -141,7 +144,7 @@ static size_t hitag_s_decode_ac2k(
             } else {
                 data_bits++;
             }
-        } else if(rb >= HITAG_S_AC2K_THRESH_23_US) {
+        } else if(rb >= thresh_23_us) {
             /* THREE_HALF: transition between 0 and 1 */
             lastbit = !lastbit;
             total_bits++;
@@ -172,7 +175,8 @@ static size_t hitag_s_decode_ac2k(
 
     FURI_LOG_I(
         TAG,
-        "AC2K: %d edges, %d periods -> %d bits (%d SOF + %d data)",
+        "%s: %d edges, %d periods -> %d bits (%d SOF + %d data)",
+        mode_name,
         (int)cap->edge_count,
         (int)period_count,
         (int)total_bits,
@@ -184,7 +188,8 @@ static size_t hitag_s_decode_ac2k(
         if(bytes >= 4) {
             FURI_LOG_D(
                 TAG,
-                "AC2K data: %02X %02X %02X %02X (%d bits)",
+                "%s data: %02X %02X %02X %02X (%d bits)",
+                mode_name,
                 out_data[0],
                 out_data[1],
                 out_data[2],
@@ -308,7 +313,8 @@ static size_t hitag_s_decode_mc4k(
 
     memset(out_data, 0, (max_bits + 7) / 8);
 
-    uint32_t glitch_min = (threshold > 200) ? 80 : HITAG_S_MC4K_GLITCH_US;
+    uint32_t glitch_min = (threshold <= 128) ? 25 :
+                                               ((threshold > 200) ? 80 : HITAG_S_MC4K_GLITCH_US);
 
     FURI_LOG_D(
         TAG, "MC: threshold=%lu, glitch=%lu", (unsigned long)threshold, (unsigned long)glitch_min);
@@ -436,12 +442,28 @@ static size_t hitag_s_decode_mc4k(
     return data_bits;
 }
 
-/* Decode mode for send_receive */
-typedef enum {
-    HitagSRxAC2K = 0, /* AC2K anti-collision (UID response) - interval based */
-    HitagSRxMC4K = 1, /* MC4K Manchester 4kbit/s (data exchange, threshold 192µs) */
-    HitagSRxMC2K = 2, /* MC2K Manchester 2kbit/s (UID response, threshold 384µs) */
-} HitagSRxMode;
+static const char* hitag_s_rx_mode_name(HitagSRxMode rx_mode) {
+    switch(rx_mode) {
+    case HitagSRxAC2K:
+        return "AC2K";
+    case HitagSRxMC4K:
+        return "MC4K";
+    case HitagSRxMC2K:
+        return "MC2K";
+    case HitagSRxAC4K:
+        return "AC4K";
+    case HitagSRxMC8K:
+        return "MC8K";
+    default:
+        return "?";
+    }
+}
+
+static uint32_t hitag_s_mc_threshold_us(HitagSRxMode rx_mode) {
+    if(rx_mode == HitagSRxMC2K) return 384;
+    if(rx_mode == HitagSRxMC8K) return 96;
+    return HITAG_S_MC4K_THRESHOLD_US;
+}
 
 /**
  * @brief Combined send + receive with proper sequencing
@@ -502,8 +524,7 @@ static size_t hitag_s_send_receive(
         return 0;
     }
 
-    const char* mode_str = rx_mode == HitagSRxAC2K ? "AC2K" :
-                                                     (rx_mode == HitagSRxMC2K ? "MC2K" : "MC4K");
+    const char* mode_str = hitag_s_rx_mode_name(rx_mode);
 
     FURI_LOG_D(
         TAG,
@@ -526,10 +547,18 @@ static size_t hitag_s_send_receive(
     /* Trace: log ALL edges */
     if(hitag_s_trace_is_active()) {
         trace_append(
-            "  RX: %d edges%s mode=%s\n",
+            "  RX: %d edges%s mode=%s",
             (int)hs_capture.edge_count,
             hs_capture.overflow ? " [OVERFLOW]" : "",
             mode_str);
+        if(rx_mode == HitagSRxAC2K) {
+            trace_append(" threshold=%d/%d", HITAG_S_AC2K_THRESH_23_US, HITAG_S_AC2K_THRESH_34_US);
+        } else if(rx_mode == HitagSRxAC4K) {
+            trace_append(" threshold=%d/%d", 160, 224);
+        } else {
+            trace_append(" threshold=%lu", (unsigned long)hitag_s_mc_threshold_us(rx_mode));
+        }
+        trace_append(" sof=%d expected_bits=%d\n", (int)sof_bits, (int)rx_max_bits);
         trace_append("  EDGES:");
         for(size_t i = 0; i < hs_capture.edge_count; i++) {
             trace_append(
@@ -542,10 +571,14 @@ static size_t hitag_s_send_receive(
 
     /* Decode using appropriate decoder */
     size_t bits;
-    if(rx_mode == HitagSRxAC2K) {
-        bits = hitag_s_decode_ac2k(&hs_capture, rx_data, rx_max_bits, sof_bits);
+    if(rx_mode == HitagSRxAC2K || rx_mode == HitagSRxAC4K) {
+        uint32_t thresh_23 = (rx_mode == HitagSRxAC4K) ? 160 : HITAG_S_AC2K_THRESH_23_US;
+        uint32_t thresh_34 = (rx_mode == HitagSRxAC4K) ? 224 : HITAG_S_AC2K_THRESH_34_US;
+        uint32_t glitch = (rx_mode == HitagSRxAC4K) ? 40 : HITAG_S_AC2K_GLITCH_US;
+        bits = hitag_s_decode_ac2k(
+            &hs_capture, rx_data, rx_max_bits, sof_bits, thresh_23, thresh_34, glitch, mode_str);
     } else {
-        uint32_t threshold = (rx_mode == HitagSRxMC2K) ? 384 : HITAG_S_MC4K_THRESHOLD_US;
+        uint32_t threshold = hitag_s_mc_threshold_us(rx_mode);
         bits = hitag_s_decode_mc4k(&hs_capture, rx_data, rx_max_bits, sof_bits, threshold);
     }
 
@@ -584,21 +617,89 @@ static void pack_bits(uint8_t* buf, size_t* bit_pos, uint32_t value, size_t n_bi
 typedef struct {
     uint8_t cmd_5bit; /* 5-bit command value for pack_bits */
     const char* name;
-    size_t uid_sof; /* SOF bits in AC2K UID response */
-    size_t data_sof; /* SOF bits in MC4K data exchange */
+    HitagSMode mode;
+    HitagSRxMode uid_rx_mode;
+    HitagSRxMode data_rx_mode;
+    size_t uid_sof; /* SOF bits in UID response */
+    size_t data_sof; /* SOF bits in data exchange */
+    size_t select_response_bits;
     bool response_crc; /* Advanced modes append CRC to data responses */
 } HitagSProtoMode;
 
 static const HitagSProtoMode proto_modes[] = {
-    {0x06, "STD", 0, 1, false}, /* UID_REQ_STD (00110): UID response has no extra SOF bit */
-    {0x19, "ADV1", 0, 6, true}, /* UID response uses raw 32-bit AC2K UID */
-    {0x18, "ADV2", 0, 6, true}, /* UID response uses raw 32-bit AC2K UID */
+    {
+        .cmd_5bit = 0x1A,
+        .name = "FADV",
+        .mode = HitagSModeFadv,
+        .uid_rx_mode = HitagSRxAC4K,
+        .data_rx_mode = HitagSRxMC8K,
+        .uid_sof = 3,
+        .data_sof = 6,
+        .select_response_bits = 40,
+        .response_crc = true,
+    },
+    {
+        .cmd_5bit = 0x19,
+        .name = "ADV1",
+        .mode = HitagSModeAdv1,
+        .uid_rx_mode = HitagSRxAC2K,
+        .data_rx_mode = HitagSRxMC4K,
+        .uid_sof = 0,
+        .data_sof = 6,
+        .select_response_bits = 40,
+        .response_crc = true,
+    },
+    {
+        .cmd_5bit = 0x18,
+        .name = "ADV2",
+        .mode = HitagSModeAdv2,
+        .uid_rx_mode = HitagSRxAC2K,
+        .data_rx_mode = HitagSRxMC4K,
+        .uid_sof = 0,
+        .data_sof = 6,
+        .select_response_bits = 40,
+        .response_crc = true,
+    },
+    {
+        .cmd_5bit = 0x06,
+        .name = "STD",
+        .mode = HitagSModeStd,
+        .uid_rx_mode = HitagSRxAC2K,
+        .data_rx_mode = HitagSRxMC4K,
+        .uid_sof = 0,
+        .data_sof = 1,
+        .select_response_bits = 32,
+        .response_crc = false,
+    },
 };
 static size_t active_mode_idx = 0;
 static bool active_uid_requires_select_verification = false;
 
+const char* hitag_s_mode_name(HitagSMode mode) {
+    switch(mode) {
+    case HitagSModeStd:
+        return "STD";
+    case HitagSModeAdv1:
+        return "ADV1";
+    case HitagSModeAdv2:
+        return "ADV2";
+    case HitagSModeFadv:
+        return "FADV";
+    default:
+        return "?";
+    }
+}
+
 static inline size_t hitag_s_data_sof(void) {
     return proto_modes[active_mode_idx].data_sof;
+}
+
+static inline HitagSRxMode hitag_s_data_rx_mode(void) {
+    return proto_modes[active_mode_idx].data_rx_mode;
+}
+
+static inline size_t hitag_s_select_expected_bits(void) {
+    return proto_modes[active_mode_idx].select_response_bits;
 }
 
 /* Receive timeouts */
@@ -627,6 +728,14 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
 
     /* Try Proxmark's 8268 write mode first, then fall back to other observed modes. */
     for(size_t c = 0; c < COUNT_OF(proto_modes); c++) {
+        trace_append(
+            "PROTO_MODE: %s cmd=%02X uid_rx=%s data_rx=%s uid_sof=%d data_sof=%d\n",
+            proto_modes[c].name,
+            proto_modes[c].cmd_5bit << 3,
+            hitag_s_rx_mode_name(proto_modes[c].uid_rx_mode),
+            hitag_s_rx_mode_name(proto_modes[c].data_rx_mode),
+            (int)proto_modes[c].uid_sof,
+            (int)proto_modes[c].data_sof);
         uint8_t cmd[1] = {0};
         size_t bit_pos = 0;
         pack_bits(cmd, &bit_pos, proto_modes[c].cmd_5bit, 5);
@@ -654,10 +763,16 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
             uint8_t rx[4] = {0};
             trace_append("  attempt %d/%s:\n", (int)(attempt + 1), proto_modes[c].name);
 
-            /* UID response is AC2K per Hitag S anti-collision. MC2K-looking captures on
-             * Flipper can be stable noise, so do not use them as UID truth. */
+            /* UID response must match the active protocol mode; other modulation
+             * captures can be stable noise, so do not use them as UID truth. */
             size_t rx_bits = hitag_s_send_receive(
-                cmd, 5, rx, 32, HITAG_S_RX_TIMEOUT_UID, HitagSRxAC2K, proto_modes[c].uid_sof);
+                cmd,
+                5,
+                rx,
+                32,
+                HITAG_S_RX_TIMEOUT_UID,
+                proto_modes[c].uid_rx_mode,
+                proto_modes[c].uid_sof);
 
             uint8_t start01_rx[4] = {0};
             size_t start01_bits = hitag_s_decode_ac2k_start01(&hs_capture, start01_rx, 32);
@@ -692,6 +807,21 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
                 uint32_t current_uid = ((uint32_t)rx[0] << 24) | ((uint32_t)rx[1] << 16) |
                                        ((uint32_t)rx[2] << 8) | (uint32_t)rx[3];
                 had_decode = true;
+
+                if(hitag_s_codec_is_low_entropy_uid(current_uid)) {
+                    FURI_LOG_W(
+                        TAG,
+                        "%s UID try %d: rejected low-entropy UID %08lX",
+                        proto_modes[c].name,
+                        (int)(attempt + 1),
+                        (unsigned long)current_uid);
+                    trace_append(
+                        "  %s: rejected low-entropy UID=%08lX\n",
+                        proto_modes[c].name,
+                        (unsigned long)current_uid);
+                    furi_delay_us(HITAG_S_T_WAIT_SC_US);
+                    continue;
+                }
 
                 if(hitag_s_capture_has_excessive_glitches(&hs_capture)) {
                     if(hitag_s_capture_is_marginal_uid_candidate(&hs_capture)) {
@@ -728,9 +858,10 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
                     (unsigned long)*uid,
                     proto_modes[c].name);
                 trace_append(
-                    "  RESULT: OK, UID=%08lX (mode=%s, AC2K)\n",
+                    "  RESULT: OK, UID=%08lX (mode=%s, %s)\n",
                     (unsigned long)*uid,
-                    proto_modes[c].name);
+                    proto_modes[c].name,
+                    hitag_s_rx_mode_name(proto_modes[c].uid_rx_mode));
                 return HitagSResultOk;
             } else if(rx_bits > 0) {
                 had_decode = true;
@@ -781,6 +912,16 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
         }
 
         if(marginal_uid_valid) {
+            if(hitag_s_codec_is_low_entropy_uid(marginal_uid)) {
+                trace_append(
+                    "  %s: rejected low-entropy marginal UID=%08lX\n",
+                    proto_modes[c].name,
+                    (unsigned long)marginal_uid);
+                marginal_uid_valid = false;
+            }
+        }
+
+        if(marginal_uid_valid) {
             *uid = marginal_uid;
             active_mode_idx = c;
             active_uid_requires_select_verification = true;
@@ -790,10 +931,11 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
                 (unsigned long)*uid,
                 proto_modes[c].name);
             trace_append(
-                "  RESULT: OK, UID=%08lX (mode=%s, AC2K, marginal)\n",
+                "  RESULT: OK, UID=%08lX (mode=%s, %s, marginal)\n",
                 (unsigned long)*uid,
-                proto_modes[c].name);
-            trace_append("  %s: using marginal noisy AC2K UID\n", proto_modes[c].name);
+                proto_modes[c].name,
+                hitag_s_rx_mode_name(proto_modes[c].uid_rx_mode));
+            trace_append("  %s: using marginal noisy UID\n", proto_modes[c].name);
             return HitagSResultOk;
         }
 
@@ -811,7 +953,7 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
         if(hitag_s_codec_is_acceptable_start01_uid(
                start01_consensus[v].uid, start01_consensus[v].votes, partial_uid_responses)) {
             *uid = start01_consensus[v].uid;
-            active_mode_idx = 0;
+            active_mode_idx = COUNT_OF(proto_modes) - 1;
             active_uid_requires_select_verification = true;
             FURI_LOG_W(
                 TAG,
@@ -858,6 +1000,12 @@ static HitagSResult hitag_s_select_frame(uint32_t uid, uint32_t* config, const c
     trace_append(
         "  TX: SELECT UID=%08lX CRC=%02X (45 bits, %s)\n", (unsigned long)uid, crc, uid_order);
     trace_append(
+        "SELECT_EXPECT: bits=%d crc=%s mode=%s data_rx=%s\n",
+        (int)hitag_s_select_expected_bits(),
+        proto_modes[active_mode_idx].response_crc ? "yes" : "no",
+        proto_modes[active_mode_idx].name,
+        hitag_s_rx_mode_name(hitag_s_data_rx_mode()));
+    trace_append(
         "  TX_FRAME: frame=%02X %02X %02X %02X %02X %02X bits=%d tx_us=%lu\n",
         cmd[0],
         cmd[1],
@@ -870,12 +1018,18 @@ static HitagSResult hitag_s_select_frame(uint32_t uid, uint32_t* config, const c
 
     furi_delay_us(HITAG_S_T_WAIT_INTER_US);
 
-    /* Combined send + receive — MC4K response with config page */
+    /* Combined send + receive with active protocol response mode */
     uint8_t rx[5] = {0}; /* 32 config + possibly 8 CRC in ADV mode */
     size_t rx_bits = hitag_s_send_receive(
-        cmd, 45, rx, 40, HITAG_S_RX_TIMEOUT_DATA, HitagSRxMC4K, hitag_s_data_sof());
+        cmd,
+        45,
+        rx,
+        hitag_s_select_expected_bits(),
+        HITAG_S_RX_TIMEOUT_DATA,
+        hitag_s_data_rx_mode(),
+        hitag_s_data_sof());
 
-    if(rx_bits < 32) {
+    if(rx_bits < hitag_s_select_expected_bits()) {
         FURI_LOG_W(TAG, "SELECT: only %d bits received", (int)rx_bits);
         trace_append("  RESULT: TIMEOUT (%d bits)\n", (int)rx_bits);
         if(active_uid_requires_select_verification) {
@@ -885,7 +1039,7 @@ static HitagSResult hitag_s_select_frame(uint32_t uid, uint32_t* config, const c
     }
 
     /* In ADV mode, response includes 8-bit CRC — verify it */
-    if(proto_modes[active_mode_idx].response_crc && rx_bits >= 40) {
+    if(proto_modes[active_mode_idx].response_crc) {
         uint8_t rx_crc = rx[4];
         uint8_t calc_crc = hitag_s_crc8(rx, 32);
         if(rx_crc != calc_crc) {
@@ -928,6 +1082,138 @@ HitagSResult hitag_s_select(uint32_t uid, uint32_t* config) {
     return last_result;
 }
 
+static HitagSResult hitag_s_select_current_mode(uint32_t uid, uint32_t* config) {
+    HitagSUidVariant variants[HITAG_S_UID_VARIANT_MAX] = {0};
+    size_t variant_count = hitag_s_codec_uid_variants(uid, variants, COUNT_OF(variants));
+
+    HitagSResult last_result = HitagSResultTimeout;
+    for(size_t i = 0; i < variant_count; i++) {
+        if(i > 0) {
+            trace_append("  SELECT retry with %s\n", variants[i].label);
+        }
+        last_result = hitag_s_select_frame(variants[i].uid, config, variants[i].label);
+        if(last_result == HitagSResultOk) return last_result;
+    }
+    return last_result;
+}
+
+static HitagSResult hitag_s_uid_request_mode(size_t mode_idx, uint32_t* uid) {
+    const HitagSProtoMode* mode = &proto_modes[mode_idx];
+    uint8_t cmd[1] = {0};
+    size_t bit_pos = 0;
+    pack_bits(cmd, &bit_pos, mode->cmd_5bit, 5);
+
+    trace_append(
+        "PROTO_MODE: %s cmd=%02X uid_rx=%s data_rx=%s uid_sof=%d data_sof=%d\n",
+        mode->name,
+        mode->cmd_5bit << 3,
+        hitag_s_rx_mode_name(mode->uid_rx_mode),
+        hitag_s_rx_mode_name(mode->data_rx_mode),
+        (int)mode->uid_sof,
+        (int)mode->data_sof);
+    trace_append("  TX: UID_REQ_%s (5 bits, val=0x%02X)\n", mode->name, mode->cmd_5bit);
+    trace_append(
+        "  TX_FRAME: frame=%02X bits=%d tx_us=%lu\n",
+        cmd[0],
+        (int)bit_pos,
+        (unsigned long)hitag_s_codec_bplm_frame_duration_us(cmd, bit_pos));
+
+    for(size_t attempt = 0; attempt < 3; attempt++) {
+        uint8_t rx[4] = {0};
+        trace_append("  attempt %d/%s:\n", (int)(attempt + 1), mode->name);
+        size_t rx_bits = hitag_s_send_receive(
+            cmd, 5, rx, 32, HITAG_S_RX_TIMEOUT_UID, mode->uid_rx_mode, mode->uid_sof);
+
+        if(rx_bits != 32) {
+            furi_delay_us(HITAG_S_T_WAIT_SC_US);
+            continue;
+        }
+
+        uint32_t candidate = ((uint32_t)rx[0] << 24) | ((uint32_t)rx[1] << 16) |
+                             ((uint32_t)rx[2] << 8) | (uint32_t)rx[3];
+        if(hitag_s_codec_is_low_entropy_uid(candidate)) {
+            trace_append(
+                "  %s: rejected low-entropy UID=%08lX\n", mode->name, (unsigned long)candidate);
+            furi_delay_us(HITAG_S_T_WAIT_SC_US);
+            continue;
+        }
+        if(mode->uid_rx_mode == HitagSRxAC2K &&
+           hitag_s_capture_has_excessive_glitches(&hs_capture)) {
+            trace_append("  %s: rejected noisy AC2K capture\n", mode->name);
+            furi_delay_us(HITAG_S_T_WAIT_SC_US);
+            continue;
+        }
+
+        *uid = candidate;
+        active_mode_idx = mode_idx;
+        active_uid_requires_select_verification = false;
+        trace_append(
+            "  RESULT: OK, UID=%08lX (mode=%s, %s)\n",
+            (unsigned long)*uid,
+            mode->name,
+            hitag_s_rx_mode_name(mode->uid_rx_mode));
+        return HitagSResultOk;
+    }
+
+    trace_append("  %s: no valid UID response\n", mode->name);
+    return HitagSResultTimeout;
+}
+
+HitagSResult hitag_s_open_session(HitagSSessionInfo* session) {
+    if(session) {
+        memset(session, 0, sizeof(*session));
+        session->mode = HitagSModeStd;
+    }
+
+    trace_append("\n--- OPEN_SESSION ---\n");
+
+    HitagSResult last_result = HitagSResultTimeout;
+    for(size_t mode_idx = 0; mode_idx < COUNT_OF(proto_modes); mode_idx++) {
+        uint32_t uid = 0;
+        uint32_t config = 0;
+        active_mode_idx = mode_idx;
+        trace_append("  mode probe: %s\n", proto_modes[mode_idx].name);
+
+        last_result = hitag_s_uid_request_mode(mode_idx, &uid);
+        if(last_result != HitagSResultOk) {
+            trace_append("  field reset before next protocol mode\n");
+            hitag_s_field_off();
+            furi_delay_ms(20);
+            hitag_s_field_on();
+            continue;
+        }
+
+        trace_append("\n--- SELECT ---\n");
+        last_result = hitag_s_select_current_mode(uid, &config);
+        if(last_result == HitagSResultOk) {
+            if(session) {
+                session->mode = proto_modes[mode_idx].mode;
+                session->uid = uid;
+                session->config = config;
+                session->selected = true;
+            }
+            trace_append(
+                "  SESSION: selected mode=%s UID=%08lX Config=%08lX\n",
+                proto_modes[mode_idx].name,
+                (unsigned long)uid,
+                (unsigned long)config);
+            return HitagSResultOk;
+        }
+
+        trace_append(
+            "  %s: SELECT failed after UID candidate %08lX (result=%d)\n",
+            proto_modes[mode_idx].name,
+            (unsigned long)uid,
+            (int)last_result);
+        trace_append("  field reset before next protocol mode\n");
+        hitag_s_field_off();
+        furi_delay_ms(20);
+        hitag_s_field_on();
+    }
+
+    return last_result;
+}
+
 HitagSResult hitag_s_8268_authenticate(uint32_t password) {
     trace_append("\n--- AUTH (pwd=0x%08lX) ---\n", (unsigned long)password);
     /* WRITE_PAGE to page 64 (authentication trigger for 8268)
@@ -952,7 +1238,7 @@ HitagSResult hitag_s_8268_authenticate(uint32_t password) {
     /* Combined send + receive for ACK — MC4K */
     uint8_t ack[1] = {0};
     size_t ack_bits = hitag_s_send_receive(
-        cmd, 20, ack, 8, HITAG_S_RX_TIMEOUT_ACK, HitagSRxMC4K, hitag_s_data_sof());
+        cmd, 20, ack, 8, HITAG_S_RX_TIMEOUT_ACK, hitag_s_data_rx_mode(), hitag_s_data_sof());
 
     if(ack_bits < 2) {
         FURI_LOG_W(TAG, "AUTH step 1: no ACK (%d bits)", (int)ack_bits);
@@ -989,7 +1275,7 @@ HitagSResult hitag_s_8268_authenticate(uint32_t password) {
     /* Combined send + receive for ACK — MC4K */
     uint8_t ack2[1] = {0};
     size_t ack2_bits = hitag_s_send_receive(
-        pwd_frame, 40, ack2, 8, HITAG_S_RX_TIMEOUT_ACK, HitagSRxMC4K, hitag_s_data_sof());
+        pwd_frame, 40, ack2, 8, HITAG_S_RX_TIMEOUT_ACK, hitag_s_data_rx_mode(), hitag_s_data_sof());
 
     if(ack2_bits < 2) {
         FURI_LOG_W(TAG, "AUTH step 2: no ACK (%d bits)", (int)ack2_bits);
@@ -1010,6 +1296,7 @@ HitagSResult hitag_s_8268_authenticate(uint32_t password) {
 }
 
 HitagSResult hitag_s_write_page(uint8_t page, uint32_t data) {
+    trace_append("\n--- WRITE_PAGE %d ---\n", page);
     /* WRITE_PAGE = 1000 (4 bits) + addr (8 bits) + CRC8 (8 bits) = 20 bits */
     uint8_t cmd[3] = {0};
     size_t bit_pos = 0;
@@ -1020,24 +1307,35 @@ HitagSResult hitag_s_write_page(uint8_t page, uint32_t data) {
     pack_bits(cmd, &bit_pos, crc, 8);
 
     FURI_LOG_D(TAG, "TX: WRITE_PAGE addr=%d CRC=%02X (20 bits)", page, crc);
+    trace_append("  TX: WRITE_PAGE addr=%d CRC=%02X (20 bits)\n", page, crc);
+    trace_append(
+        "  TX_FRAME: frame=%02X %02X %02X bits=%d tx_us=%lu\n",
+        cmd[0],
+        cmd[1],
+        cmd[2],
+        (int)bit_pos,
+        (unsigned long)hitag_s_codec_bplm_frame_duration_us(cmd, bit_pos));
 
     furi_delay_us(HITAG_S_T_WAIT_SC_US);
 
     /* Combined send + receive for ACK — MC4K */
     uint8_t ack[1] = {0};
     size_t ack_bits = hitag_s_send_receive(
-        cmd, 20, ack, 8, HITAG_S_RX_TIMEOUT_ACK, HitagSRxMC4K, hitag_s_data_sof());
+        cmd, 20, ack, 8, HITAG_S_RX_TIMEOUT_ACK, hitag_s_data_rx_mode(), hitag_s_data_sof());
 
     if(ack_bits < 2) {
         FURI_LOG_W(TAG, "WRITE_PAGE addr=%d: no ACK", page);
+        trace_append("  step1: no ACK (%d bits)\n", (int)ack_bits);
         return HitagSResultTimeout;
     }
 
     uint8_t ack_val = (ack[0] >> 6) & 0x03;
     if(ack_val != HITAG_S_ACK) {
         FURI_LOG_W(TAG, "WRITE_PAGE addr=%d: NACK (0x%02X)", page, ack_val);
+        trace_append("  step1: NACK (0x%02X)\n", ack_val);
         return HitagSResultNack;
     }
+    trace_append("  step1: ACK OK\n");
 
     /* Send 32-bit data + CRC8 = 40 bits */
     uint8_t data_frame[5] = {0};
@@ -1047,6 +1345,16 @@ HitagSResult hitag_s_write_page(uint8_t page, uint32_t data) {
     pack_bits(data_frame, &data_pos, data_crc, 8);
 
     FURI_LOG_D(TAG, "TX: Data=%08lX CRC=%02X (40 bits)", (unsigned long)data, data_crc);
+    trace_append("  TX: Data=%08lX CRC=%02X (40 bits)\n", (unsigned long)data, data_crc);
+    trace_append(
+        "  TX_FRAME: frame=%02X %02X %02X %02X %02X bits=%d tx_us=%lu\n",
+        data_frame[0],
+        data_frame[1],
+        data_frame[2],
+        data_frame[3],
+        data_frame[4],
+        (int)data_pos,
+        (unsigned long)hitag_s_codec_bplm_frame_duration_us(data_frame, data_pos));
 
     furi_delay_us(HITAG_S_T_WAIT_SC_US);
 
@@ -1058,22 +1366,26 @@ HitagSResult hitag_s_write_page(uint8_t page, uint32_t data) {
         ack2,
         8,
         HITAG_S_T_PROG_US + HITAG_S_RX_TIMEOUT_ACK,
-        HitagSRxMC4K,
+        hitag_s_data_rx_mode(),
         hitag_s_data_sof());
 
     if(ack2_bits < 2) {
         /* Some tags don't ACK after programming — treat as OK */
         FURI_LOG_D(TAG, "WRITE_PAGE addr=%d: no final ACK (may be OK)", page);
+        trace_append("  step2: no final ACK (%d bits, accepted)\n", (int)ack2_bits);
         return HitagSResultOk;
     }
 
     uint8_t ack2_val = (ack2[0] >> 6) & 0x03;
     if(ack2_val != HITAG_S_ACK) {
         FURI_LOG_W(TAG, "WRITE_PAGE addr=%d: final NACK (0x%02X)", page, ack2_val);
+        trace_append("  step2: NACK (0x%02X)\n", ack2_val);
         return HitagSResultNack;
     }
 
     FURI_LOG_I(TAG, "WRITE_PAGE addr=%d: OK", page);
+    trace_append("  step2: ACK OK\n");
+    trace_append("  RESULT: OK\n");
     return HitagSResultOk;
 }
 
@@ -1095,16 +1407,22 @@ HitagSResult hitag_s_read_page(uint8_t page, uint32_t* data) {
     /* Combined send + receive — MC4K response with page data */
     uint8_t rx[5] = {0}; /* 32 data + possibly 8 CRC in ADV mode */
     size_t rx_bits = hitag_s_send_receive(
-        cmd, 20, rx, 40, HITAG_S_RX_TIMEOUT_DATA, HitagSRxMC4K, hitag_s_data_sof());
+        cmd,
+        20,
+        rx,
+        hitag_s_select_expected_bits(),
+        HITAG_S_RX_TIMEOUT_DATA,
+        hitag_s_data_rx_mode(),
+        hitag_s_data_sof());
 
-    if(rx_bits < 32) {
+    if(rx_bits < hitag_s_select_expected_bits()) {
         FURI_LOG_W(TAG, "READ_PAGE addr=%d: only %d bits received", page, (int)rx_bits);
         trace_append("  RESULT: TIMEOUT (%d bits)\n", (int)rx_bits);
         return HitagSResultTimeout;
     }
 
     /* In ADV mode, verify CRC */
-    if(proto_modes[active_mode_idx].response_crc && rx_bits >= 40) {
+    if(proto_modes[active_mode_idx].response_crc) {
         uint8_t rx_crc = rx[4];
         uint8_t calc_crc = hitag_s_crc8(rx, 32);
         if(rx_crc != calc_crc) {

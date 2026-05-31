@@ -37,8 +37,8 @@ static void hitags_writer_prepare_clone_data(HitagSApp* app) {
     dump.max_page = app->dump_max_page;
     for(int p = 0; p < HITAG_S_MAX_PAGES; p++) {
         dump.pages[p] = app->dump_pages[p];
-        dump.page_status[p] = app->dump_valid[p] ? HitagSPageStatusReadOk :
-                                                   HitagSPageStatusInvalid;
+        dump.page_status[p] = app->dump_valid[p] ? HitagSDumpPageStatusReadOk :
+                                                   HitagSDumpPageStatusInvalid;
     }
 
     hitag_s_dump_model_make_clone_plan(&dump, &plan);

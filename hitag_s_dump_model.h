@@ -8,15 +8,15 @@
 #define HITAG_S_DUMP_MODEL_MAX_PAGES 64
 
 typedef enum {
-    HitagSPageStatusInvalid,
-    HitagSPageStatusFromSelect,
-    HitagSPageStatusReadOk,
-} HitagSPageStatus;
+    HitagSDumpPageStatusInvalid,
+    HitagSDumpPageStatusFromSelect,
+    HitagSDumpPageStatusReadOk,
+} HitagSDumpPageStatus;
 
 typedef struct {
     uint32_t uid;
     uint32_t pages[HITAG_S_DUMP_MODEL_MAX_PAGES];
-    HitagSPageStatus page_status[HITAG_S_DUMP_MODEL_MAX_PAGES];
+    HitagSDumpPageStatus page_status[HITAG_S_DUMP_MODEL_MAX_PAGES];
     int max_page;
 } HitagSTagDump;
 
@@ -36,7 +36,7 @@ static inline void hitag_s_dump_model_reset(HitagSTagDump* dump) {
 static inline size_t hitag_s_dump_model_count_read_pages(const HitagSTagDump* dump) {
     size_t count = 0;
     for(int page = 0; page <= dump->max_page && page < HITAG_S_DUMP_MODEL_MAX_PAGES; page++) {
-        if(dump->page_status[page] == HitagSPageStatusReadOk) count++;
+        if(dump->page_status[page] == HitagSDumpPageStatusReadOk) count++;
     }
     return count;
 }
@@ -44,7 +44,7 @@ static inline size_t hitag_s_dump_model_count_read_pages(const HitagSTagDump* du
 static inline size_t hitag_s_dump_model_count_present_pages(const HitagSTagDump* dump) {
     size_t count = 0;
     for(int page = 0; page <= dump->max_page && page < HITAG_S_DUMP_MODEL_MAX_PAGES; page++) {
-        if(dump->page_status[page] != HitagSPageStatusInvalid) count++;
+        if(dump->page_status[page] != HitagSDumpPageStatusInvalid) count++;
     }
     return count;
 }
@@ -53,12 +53,12 @@ static inline void
     hitag_s_dump_model_make_clone_plan(const HitagSTagDump* dump, HitagSClonePlan* plan) {
     memset(plan, 0, sizeof(*plan));
     plan->uid = dump->uid;
-    if(dump->page_status[1] != HitagSPageStatusInvalid) {
+    if(dump->page_status[1] != HitagSDumpPageStatusInvalid) {
         plan->config = dump->pages[1];
     }
 
     for(int page = 4; page <= dump->max_page && page < HITAG_S_DUMP_MODEL_MAX_PAGES; page++) {
-        if(dump->page_status[page] != HitagSPageStatusReadOk) continue;
+        if(dump->page_status[page] != HitagSDumpPageStatusReadOk) continue;
         plan->addrs[plan->count] = (uint8_t)page;
         plan->pages[plan->count] = dump->pages[page];
         plan->count++;

@@ -175,12 +175,13 @@ def decode_mc4k(edges: list, threshold: int = 192, sof_bits: int = 6) -> tuple:
 
 def sweep_mc4k_decode(cap: RxCapture) -> Optional[Mc4kSweepCandidate]:
     """Find the best MC4K decode candidate across plausible thresholds and SOF lengths."""
-    if cap.mode != "MC4K" or not cap.edges:
+    if cap.mode not in ("MC4K", "MC8K") or not cap.edges:
         return None
 
     best = Mc4kSweepCandidate()
+    thresholds = range(64, 145, 8) if cap.mode == "MC8K" else range(144, 257, 16)
     for sof_bits in range(0, 7):
-        for threshold in range(144, 257, 16):
+        for threshold in thresholds:
             bits, data, _ = decode_mc4k(cap.edges, threshold=threshold, sof_bits=sof_bits)
             if bits > best.bits:
                 best = Mc4kSweepCandidate(bits=bits, data=data, threshold=threshold, sof_bits=sof_bits)
@@ -188,15 +189,18 @@ def sweep_mc4k_decode(cap: RxCapture) -> Optional[Mc4kSweepCandidate]:
     return best if best.bits > 0 else None
 
 
-def decode_ac2k(edges: list, sof_bits: int = 1) -> tuple:
+def _ac_thresholds(mode: str = "AC2K") -> tuple[int, int, int]:
+    if mode == "AC4K":
+        return 160, 224, 40
+    return 320, 448, 80
+
+
+def decode_ac2k(edges: list, sof_bits: int = 1, mode: str = "AC2K") -> tuple:
     """
     Re-decode AC2K anti-collision response from raw edges.
     Returns (data_bits: int, data: bytes).
     """
-    # AC2K thresholds (µs)
-    THRESH_34 = 448  # between 3-half and 4-half
-    THRESH_23 = 320  # between 2-half and 3-half
-    GLITCH = 80
+    THRESH_23, THRESH_34, GLITCH = _ac_thresholds(mode)
 
     lastbit = 0
     bSkip = False
@@ -204,8 +208,8 @@ def decode_ac2k(edges: list, sof_bits: int = 1) -> tuple:
     sof_remaining = sof_bits
     data_bits = 0
     first_period = True
-    max_bits = 64
-    data = bytearray(8)
+    max_bits = 256
+    data = bytearray(32)
 
     for e in edges:
         if e.level == 'H':
@@ -266,8 +270,8 @@ def decode_ac2k_start01(edges: list) -> tuple:
     bSkip = False
     started = False
     data_bits = 0
-    max_bits = 64
-    data = bytearray(8)
+    max_bits = 32
+    data = bytearray(4)
 
     def put_bit(bit: int) -> None:
         nonlocal data_bits
@@ -385,10 +389,10 @@ def uid_candidate_summary(
         if txn.section != "UID_REQUEST":
             continue
         for cap in txn.captures:
-            if cap.mode != "AC2K":
+            if cap.mode not in ("AC2K", "AC4K"):
                 continue
 
-            bits, data = decode_ac2k(cap.edges, sof_bits=0)
+            bits, data = decode_ac2k(cap.edges, sof_bits=0, mode=cap.mode)
             if bits == 32 and is_valid_ac2k_uid_capture(bits, cap.edges):
                 candidates.append(UidCandidate(_uid_hex(data), "clean-ac2k", 100, 1))
             elif bits == 32 and is_marginal_ac2k_uid_capture(bits, cap.edges):
@@ -444,9 +448,9 @@ def partial_uid_response_count(tf) -> int:
         if txn.section != "UID_REQUEST":
             continue
         for cap in txn.captures:
-            if cap.mode != "AC2K":
+            if cap.mode not in ("AC2K", "AC4K"):
                 continue
-            bits, _ = decode_ac2k(cap.edges, sof_bits=0)
+            bits, _ = decode_ac2k(cap.edges, sof_bits=0, mode=cap.mode)
             if 28 <= bits < 32:
                 count += 1
     return count
@@ -459,7 +463,7 @@ def empty_uid_response_count(tf) -> int:
         if txn.section != "UID_REQUEST":
             continue
         for cap in txn.captures:
-            if cap.mode != "AC2K":
+            if cap.mode not in ("AC2K", "AC4K"):
                 continue
             if cap.decode_bits == 0 and 0 < cap.rx_final_edges <= 2:
                 count += 1
@@ -580,6 +584,10 @@ class TraceFile:
     uid: Optional[int] = None
     config: Optional[int] = None
     proto_mode: str = "STD"
+    uid_rx_mode: str = ""
+    data_rx_mode: str = ""
+    select_expected_bits: int = 0
+    select_crc: str = ""
     raw_text: str = ""
     field_carrier_hz: int = 0
     field_duty: str = ""
@@ -614,6 +622,22 @@ def parse_trace(text: str) -> TraceFile:
                 tf.field_duty = field_match.group(2)
                 tf.field_pull = field_match.group(3)
                 tf.field_powerup_us = int(field_match.group(4))
+            continue
+
+        if stripped.startswith("PROTO_MODE:"):
+            proto_match = re.search(
+                r'PROTO_MODE:\s+(\w+).*uid_rx=(\w+)\s+data_rx=(\w+)', stripped)
+            if proto_match:
+                tf.proto_mode = proto_match.group(1)
+                tf.uid_rx_mode = proto_match.group(2)
+                tf.data_rx_mode = proto_match.group(3)
+            continue
+
+        if stripped.startswith("SELECT_EXPECT:"):
+            select_match = re.search(r'bits=(\d+)\s+crc=(yes|no)', stripped)
+            if select_match:
+                tf.select_expected_bits = int(select_match.group(1))
+                tf.select_crc = select_match.group(2)
             continue
 
         # Section headers like "--- UID_REQUEST ---"
@@ -771,11 +795,11 @@ def analyze_timing(capture: RxCapture) -> list:
 
     durations = [e.duration for e in capture.edges if e.level == 'L']
 
-    if capture.mode in ('MC4K', 'MC2K'):
+    if capture.mode in ('MC4K', 'MC2K', 'MC8K'):
         # Expected half-periods: ~128µs (MC4K) or ~256µs (MC2K)
-        threshold = 192 if capture.mode == 'MC4K' else 384
-        nominal_short = 128 if capture.mode == 'MC4K' else 256
-        nominal_long = 256 if capture.mode == 'MC4K' else 512
+        threshold = 96 if capture.mode == 'MC8K' else (192 if capture.mode == 'MC4K' else 384)
+        nominal_short = 64 if capture.mode == 'MC8K' else (128 if capture.mode == 'MC4K' else 256)
+        nominal_long = 128 if capture.mode == 'MC8K' else (256 if capture.mode == 'MC4K' else 512)
 
         for i, d in enumerate(durations):
             if d > 0:
@@ -786,11 +810,13 @@ def analyze_timing(capture: RxCapture) -> list:
                 elif d > nominal_long * 2:
                     issues.append(f"  Gap at period[{i}]: {d}µs (>{nominal_long*2}µs)")
 
-    elif capture.mode == 'AC2K':
+    elif capture.mode in ('AC2K', 'AC4K'):
+        glitch = 40 if capture.mode == 'AC4K' else 80
+        gap = 600 if capture.mode == 'AC4K' else 1200
         for i, d in enumerate(durations):
-            if d > 0 and d < 80:
+            if d > 0 and d < glitch:
                 issues.append(f"  Glitch at period[{i}]: {d}µs")
-            if d > 1200:
+            if d > gap:
                 issues.append(f"  Gap at period[{i}]: {d}µs (very long)")
 
     return issues
@@ -916,6 +942,13 @@ def generate_report(tf: TraceFile, show_edges: bool = False, redecode: bool = Fa
         lines.append(
             f"LF field: carrier={tf.field_carrier_hz}Hz duty={tf.field_duty} "
             f"pull={tf.field_pull} powerup_us={tf.field_powerup_us}")
+    if tf.proto_mode:
+        proto_line = f"Protocol mode: {tf.proto_mode}"
+        if tf.uid_rx_mode or tf.data_rx_mode:
+            proto_line += f" uid_rx={tf.uid_rx_mode or '?'} data_rx={tf.data_rx_mode or '?'}"
+        if tf.select_expected_bits:
+            proto_line += f" select_bits={tf.select_expected_bits} crc={tf.select_crc or '?'}"
+        lines.append(proto_line)
     lines.append("")
 
     # Transaction analysis
@@ -1017,26 +1050,27 @@ def generate_report(tf: TraceFile, show_edges: bool = False, redecode: bool = Fa
 
             # Re-decode if requested
             if redecode and cap.edges:
-                if cap.mode == 'MC4K':
-                    sof_bits = 6 if tf.proto_mode.upper().startswith("ADV") else 1
-                    bits, data, _ = decode_mc4k(cap.edges, threshold=192, sof_bits=sof_bits)
+                if cap.mode in ('MC4K', 'MC8K'):
+                    sof_bits = 6 if tf.proto_mode.upper().endswith("ADV") or tf.proto_mode.upper().startswith("ADV") else 1
+                    threshold = 96 if cap.mode == 'MC8K' else 192
+                    bits, data, _ = decode_mc4k(cap.edges, threshold=threshold, sof_bits=sof_bits)
                     orig_hex = cap.decode_data.hex().upper() if cap.decode_data else "N/A"
                     new_hex = data.hex().upper() if data else "N/A"
-                    lines.append(f"  Re-decode MC4K: {bits} bits = {new_hex}")
+                    lines.append(f"  Re-decode {cap.mode}: {bits} bits = {new_hex}")
                     if orig_hex != new_hex and cap.decode_data:
                         lines.append(f"    ⚠ MISMATCH: original={orig_hex}")
                     sweep = sweep_mc4k_decode(cap)
                     if sweep and sweep.bits > bits:
                         sweep_hex = sweep.data.hex().upper() if sweep.data else "N/A"
                         lines.append(
-                            "    MC4K sweep: "
+                            f"    {cap.mode} sweep: "
                             f"best={sweep.bits} bits threshold={sweep.threshold} "
                             f"sof={sweep.sof_bits} data={sweep_hex}"
                         )
-                elif cap.mode == 'AC2K':
-                    bits, data = decode_ac2k(cap.edges, sof_bits=0)
+                elif cap.mode in ('AC2K', 'AC4K'):
+                    bits, data = decode_ac2k(cap.edges, sof_bits=0, mode=cap.mode)
                     new_hex = data.hex().upper() if data else "N/A"
-                    lines.append(f"  Re-decode AC2K: {bits} bits = {new_hex}")
+                    lines.append(f"  Re-decode {cap.mode}: {bits} bits = {new_hex}")
                     quality = ac2k_quality(cap.edges)
                     if quality["too_noisy"]:
                         severity = (
@@ -1247,11 +1281,11 @@ def generate_batch_summary(named_traces: list[tuple[str, TraceFile]]) -> str:
             empty_uid_count)
 
         lines.append(
-            f"{name} | uid={uid} | accepted={accepted} | marginal={marginal} | "
+            f"{name} | mode={tf.proto_mode} | uid={uid} | accepted={accepted} | marginal={marginal} | "
             f"start01={start01} | partial_uid={partial_uid_count} | "
             f"empty_uid={empty_uid_count} | field={field} | "
             f"uid_tx={uid_tx} | select_tx={select_tx} | select_bits={select_bits} | "
-            f"select_sweep={select_sweep_bits} | {hint}"
+            f"select_crc={tf.select_crc or '-'} | select_sweep={select_sweep_bits} | {hint}"
         )
 
     return "\n".join(lines)

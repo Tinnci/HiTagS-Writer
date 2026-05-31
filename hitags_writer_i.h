@@ -162,6 +162,8 @@ struct HitagSApp {
 
     /* Debug trace */
     void* debug_trace; /**< FuriString* trace buffer from debug read (void* to avoid include) */
+    HitagSMode debug_mode; /**< Protocol mode selected by Debug Read */
+    const char* debug_stage; /**< Last Debug Read stage for partial UI */
 
     /* Text buffers */
     char text_store[HITAGS_WRITER_TEXT_STORE_SIZE + 1];

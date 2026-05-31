@@ -218,6 +218,31 @@ Field ON: carrier=125000Hz duty=0.5 pull=release powerup_us=3000
         self.assertIn("UID TX frame check: OK (C8, 5 bits, tx_us=1344)", report)
         self.assertIn("UID TX frame check: OK (C0, 5 bits, tx_us=1280)", report)
 
+    def test_fadv_uid_request_frame_and_modes_are_reported(self):
+        trace = """=== HiTag S Debug Trace v2 ===
+
+PROTO_MODE: FADV cmd=D0 uid_rx=AC4K data_rx=MC8K uid_sof=3 data_sof=6
+SELECT_EXPECT: bits=40 crc=yes
+
+--- UID_REQUEST ---
+  TX: UID_REQ_FADV (5 bits, val=0x1A)
+  TX_FRAME: frame=D0 bits=5 tx_us=1344
+  RX: 2 edges mode=AC4K threshold=160/224 sof=3 expected_bits=32
+  EDGES: L:5 H:25000
+  DECODE: 0 bits
+  RESULT: TIMEOUT (no UID)
+"""
+
+        parsed = analyze_trace.parse_trace(trace)
+        report = analyze_trace.generate_report(parsed)
+        summary = analyze_trace.generate_batch_summary([("fadv.htsd", parsed)])
+
+        self.assertEqual(parsed.proto_mode, "FADV")
+        self.assertIn("Protocol mode: FADV", report)
+        self.assertIn("UID TX frame check: OK (D0, 5 bits, tx_us=1344)", report)
+        self.assertIn("mode=AC4K", report)
+        self.assertIn("mode=FADV", summary)
+
     def test_uid_request_frame_mismatch_is_reported(self):
         trace = """=== HiTag S Debug Trace ===
 
@@ -384,13 +409,13 @@ Field ON: carrier=125000Hz duty=0.5 pull=release powerup_us=3000
 
         self.assertIn("Batch Summary", summary)
         self.assertIn(
-            "old.htsd | uid=- | accepted=- | marginal=- | start01=- | partial_uid=0 | "
+            "old.htsd | mode=STD | uid=- | accepted=- | marginal=- | start01=- | partial_uid=0 | "
             "empty_uid=0 | field=legacy | "
             "uid_tx=legacy | select_tx=legacy",
             summary,
         )
         self.assertIn(
-            "new.htsd | uid=- | accepted=- | marginal=- | start01=- | partial_uid=0 | "
+            "new.htsd | mode=STD | uid=- | accepted=- | marginal=- | start01=- | partial_uid=0 | "
             "empty_uid=0 | field=release | "
             "uid_tx=ok | select_tx=ok",
             summary,
@@ -705,6 +730,28 @@ Field ON: carrier=125000Hz duty=0.5 pull=release powerup_us=3000
         self.assertIsNone(analyze_trace.start01_uid_consensus(parsed))
         self.assertIn("40000000", report)
         self.assertIn("low-entropy", report)
+        self.assertIn("uid-fallback-low-entropy-rejected", summary)
+        self.assertTrue(
+            any(
+                candidate.uid == "40000000" and candidate.reject_reason == "low-entropy"
+                for candidate in candidates
+            )
+        )
+
+    def test_latest_cold_retry_trace_reports_rejected_low_entropy_start01(self):
+        trace_path = (
+            Path(__file__).resolve().parents[1] /
+            "pulled_traces/flipper_Trace_NoUID_6A1C450A_15187b.htsd"
+        )
+        if not trace_path.exists():
+            self.skipTest("latest cold retry hardware trace fixture not present")
+
+        parsed = analyze_trace.parse_trace(trace_path.read_text())
+        summary = analyze_trace.generate_batch_summary([(str(trace_path), parsed)])
+        candidates = analyze_trace.uid_candidate_summary(parsed)
+
+        self.assertEqual(analyze_trace.partial_uid_response_count(parsed), 6)
+        self.assertIsNone(analyze_trace.start01_uid_consensus(parsed))
         self.assertIn("uid-fallback-low-entropy-rejected", summary)
         self.assertTrue(
             any(

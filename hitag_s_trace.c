@@ -33,7 +33,7 @@ void hitag_s_debug_trace_start(void) {
         furi_string_free(g_debug_trace);
     }
     g_debug_trace = furi_string_alloc();
-    furi_string_cat_str(g_debug_trace, "=== HiTag S Debug Trace ===\n");
+    furi_string_cat_str(g_debug_trace, "=== HiTag S Debug Trace v2 ===\n");
     g_trace_active = true;
     FURI_LOG_I(TAG, "Debug trace started");
 }

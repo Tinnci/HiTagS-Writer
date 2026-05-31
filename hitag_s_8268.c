@@ -173,7 +173,7 @@ HitagSResult hitag_s_8268_write_em4100_sequence(
 
     result = hitag_s_write_page_verify(4, em_data->data_hi);
     if(result == HitagSResultOk) result = hitag_s_write_page_verify(5, em_data->data_lo);
-    if(result == HitagSResultOk) result = hitag_s_write_page(1, new_config);
+    if(result == HitagSResultOk) result = hitag_s_write_page_verify(1, new_config);
 
     hitag_s_field_off();
     return result;
@@ -335,7 +335,8 @@ static HitagSResult hitag_s_debug_read_finish(
     uint32_t uid,
     const uint32_t* pages,
     const bool* page_valid,
-    int max_page) {
+    int max_page,
+    const HitagSDebugReadReport* report) {
     int safe_max_page = max_page;
     if(safe_max_page < 0) safe_max_page = 0;
     if(safe_max_page >= HITAG_S_MAX_PAGES) safe_max_page = HITAG_S_MAX_PAGES - 1;
@@ -345,18 +346,46 @@ static HitagSResult hitag_s_debug_read_finish(
         if(page_valid[p]) read_count++;
     }
 
-    trace_append(
-        "\n=== SUMMARY: %d/%d pages read, UID=%08lX, result=%d ===\n",
-        read_count,
-        safe_max_page + 1,
-        (unsigned long)uid,
-        (int)result);
+    if(report) {
+        trace_append(
+            "\n=== SUMMARY: %d/%d pages read, UID=%08lX, result=%d, mode=%s, stage=%s ===\n",
+            read_count,
+            safe_max_page + 1,
+            (unsigned long)uid,
+            (int)result,
+            hitag_s_mode_name(report->session.mode),
+            report->failure_stage ? report->failure_stage : "-");
+    } else {
+        trace_append(
+            "\n=== SUMMARY: %d/%d pages read, UID=%08lX, result=%d ===\n",
+            read_count,
+            safe_max_page + 1,
+            (unsigned long)uid,
+            (int)result);
+    }
     trace_append("\nPAGE TABLE:\n");
     for(int p = 0; p <= safe_max_page; p++) {
+        const char* status = "";
+        if(report) {
+            switch(report->page_status[p]) {
+            case HitagSPageStatusRead:
+                status = " read";
+                break;
+            case HitagSPageStatusSkippedProtected:
+                status = " skipped-protected";
+                break;
+            case HitagSPageStatusReadError:
+                status = " read-error";
+                break;
+            default:
+                status = " missing";
+                break;
+            }
+        }
         if(page_valid[p]) {
-            trace_append("  [%2d] %08lX\n", p, (unsigned long)pages[p]);
+            trace_append("  [%2d] %08lX%s\n", p, (unsigned long)pages[p], status);
         } else {
-            trace_append("  [%2d] --------\n", p);
+            trace_append("  [%2d] --------%s\n", p, status);
         }
     }
 
@@ -371,29 +400,49 @@ HitagSResult hitag_s_debug_read_sequence(
     uint32_t* pages,
     bool* page_valid,
     int* max_page) {
+    return hitag_s_debug_read_sequence_ex(uid_out, config_out, pages, page_valid, max_page, NULL);
+}
+
+HitagSResult hitag_s_debug_read_sequence_ex(
+    uint32_t* uid_out,
+    uint32_t* config_out,
+    uint32_t* pages,
+    bool* page_valid,
+    int* max_page,
+    HitagSDebugReadReport* report) {
     uint32_t uid = 0;
     uint32_t config = 0;
-    trace_append("\n=== DEBUG READ SEQUENCE ===\n");
+    HitagSDebugReadReport local_report;
+    if(!report) report = &local_report;
+    memset(report, 0, sizeof(*report));
+    report->failure_stage = "-";
+    for(size_t i = 0; i < HITAG_S_MAX_PAGES; i++) {
+        report->page_status[i] = HitagSPageStatusMissing;
+        page_valid[i] = false;
+    }
+
+    trace_append("\n=== DEBUG READ SEQUENCE v2 ===\n");
     hitag_s_field_on();
     trace_append(
         "Field ON: carrier=125000Hz duty=0.5 pull=release powerup_us=%d\n",
         HITAG_S_T_WAIT_POWERUP_US);
 
-    HitagSResult result = hitag_s_uid_request(&uid);
+    HitagSSessionInfo session;
+    HitagSResult result = hitag_s_open_session(&session);
     if(result != HitagSResultOk) {
-        trace_append("ABORT: UID request failed (result=%d)\n", (int)result);
-        return hitag_s_debug_read_finish(result, uid, pages, page_valid, 0);
+        report->failure_stage = "UID";
+        trace_append("ABORT: UID/SELECT session failed (result=%d)\n", (int)result);
+        return hitag_s_debug_read_finish(result, uid, pages, page_valid, 0, report);
     }
 
+    report->session = session;
+    uid = session.uid;
+    config = session.config;
     if(uid_out) *uid_out = uid;
     pages[0] = uid;
     page_valid[0] = true;
+    report->page_status[0] = HitagSPageStatusRead;
 
-    result = hitag_s_select(uid, &config);
-    if(result != HitagSResultOk) {
-        trace_append("ABORT: SELECT failed (result=%d)\n", (int)result);
-        return hitag_s_debug_read_finish(result, uid, pages, page_valid, 0);
-    }
     if(config_out) *config_out = config;
 
     HitagSConfig cfg = hitag_s_parse_config(config);
@@ -409,35 +458,71 @@ HitagSResult hitag_s_debug_read_sequence(
         cfg.LCON);
     trace_append("Config: TTFC=%d TTFDR=%d TTFM=%d\n", cfg.TTFC, cfg.TTFDR, cfg.TTFM);
 
-    trace_append("\n--- AUTH MULTI ---\n");
-    result = hitag_s_8268_authenticate_multi(NULL, 0);
-    if(result != HitagSResultOk) {
-        trace_append("ABORT: AUTH failed (result=%d)\n", (int)result);
-        return hitag_s_debug_read_finish(result, uid, pages, page_valid, max_pg);
-    }
-
+    trace_append("READ_PAGE 1: trying real config read before using SELECT candidate\n");
     result = hitag_s_read_page(1, &pages[1]);
     if(result == HitagSResultOk) {
         page_valid[1] = true;
+        report->page_status[1] = HitagSPageStatusRead;
         config = pages[1];
         cfg = hitag_s_parse_config(config);
+        max_pg = hitag_s_max_page(&cfg);
+        if(max_page) *max_page = max_pg;
+        if(config_out) *config_out = config;
     } else {
         pages[1] = config;
         page_valid[1] = false;
         trace_append("  (using config from SELECT)\n");
+        report->page_status[1] = HitagSPageStatusReadError;
+    }
+
+    bool need_auth = cfg.auth || !page_valid[1];
+    bool authed = false;
+    if(need_auth) {
+        trace_append("\n--- AUTH MULTI ---\n");
+        result = hitag_s_8268_authenticate_multi(NULL, 0);
+        if(result != HitagSResultOk) {
+            report->failure_stage = "AUTH";
+            trace_append("ABORT: AUTH failed (result=%d)\n", (int)result);
+            return hitag_s_debug_read_finish(result, uid, pages, page_valid, max_pg, report);
+        }
+        authed = true;
+
+        if(!page_valid[1]) {
+            result = hitag_s_read_page(1, &pages[1]);
+            if(result == HitagSResultOk) {
+                page_valid[1] = true;
+                report->page_status[1] = HitagSPageStatusRead;
+                config = pages[1];
+                cfg = hitag_s_parse_config(config);
+                max_pg = hitag_s_max_page(&cfg);
+                if(max_page) *max_page = max_pg;
+                if(config_out) *config_out = config;
+            }
+        }
     }
 
     for(uint8_t p = 2; p <= 3; p++) {
+        if(authed && cfg.LKP) {
+            page_valid[p] = false;
+            report->page_status[p] = HitagSPageStatusSkippedProtected;
+            trace_append("  page %d skipped: auth+LKP protected\n", p);
+            continue;
+        }
         result = hitag_s_read_page(p, &pages[p]);
         page_valid[p] = result == HitagSResultOk;
+        report->page_status[p] = page_valid[p] ? HitagSPageStatusRead : HitagSPageStatusReadError;
     }
+
     for(int p = 4; p <= max_pg; p++) {
         result = hitag_s_read_page((uint8_t)p, &pages[p]);
         page_valid[p] = result == HitagSResultOk;
+        report->page_status[p] = page_valid[p] ? HitagSPageStatusRead : HitagSPageStatusReadError;
     }
     for(int p = max_pg + 1; p < HITAG_S_MAX_PAGES; p++) {
         page_valid[p] = false;
+        report->page_status[p] = HitagSPageStatusMissing;
     }
 
-    return hitag_s_debug_read_finish(HitagSResultOk, uid, pages, page_valid, max_pg);
+    report->failure_stage = "READ";
+    return hitag_s_debug_read_finish(HitagSResultOk, uid, pages, page_valid, max_pg, report);
 }

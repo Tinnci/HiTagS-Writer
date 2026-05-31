@@ -218,6 +218,41 @@ typedef enum {
     HitagSResultCrcError,
 } HitagSResult;
 
+typedef enum {
+    HitagSModeStd,
+    HitagSModeAdv1,
+    HitagSModeAdv2,
+    HitagSModeFadv,
+} HitagSMode;
+
+typedef enum {
+    HitagSRxAC2K = 0,
+    HitagSRxMC4K = 1,
+    HitagSRxMC2K = 2,
+    HitagSRxAC4K = 3,
+    HitagSRxMC8K = 4,
+} HitagSRxMode;
+
+typedef struct {
+    HitagSMode mode;
+    uint32_t uid;
+    uint32_t config;
+    bool selected;
+} HitagSSessionInfo;
+
+typedef enum {
+    HitagSPageStatusMissing,
+    HitagSPageStatusRead,
+    HitagSPageStatusSkippedProtected,
+    HitagSPageStatusReadError,
+} HitagSPageStatus;
+
+typedef struct {
+    HitagSSessionInfo session;
+    const char* failure_stage;
+    HitagSPageStatus page_status[HITAG_S_MAX_PAGES];
+} HitagSDebugReadReport;
+
 typedef void (*HitagSRxStartCallback)(void* context);
 
 /**
@@ -271,6 +306,10 @@ HitagSResult hitag_s_uid_request(uint32_t* uid);
  * @return HitagSResult
  */
 HitagSResult hitag_s_select(uint32_t uid, uint32_t* config);
+
+const char* hitag_s_mode_name(HitagSMode mode);
+
+HitagSResult hitag_s_open_session(HitagSSessionInfo* session);
 
 /**
  * @brief Authenticate to 8268 chip by writing password to page 64
@@ -481,6 +520,14 @@ HitagSResult hitag_s_debug_read_sequence(
     uint32_t* pages,
     bool* page_valid,
     int* max_page);
+
+HitagSResult hitag_s_debug_read_sequence_ex(
+    uint32_t* uid_out,
+    uint32_t* config_out,
+    uint32_t* pages,
+    bool* page_valid,
+    int* max_page,
+    HitagSDebugReadReport* report);
 
 #ifdef __cplusplus
 }

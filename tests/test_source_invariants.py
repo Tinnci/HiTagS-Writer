@@ -109,13 +109,12 @@ class SourceInvariantTests(unittest.TestCase):
 
     def test_debug_read_abort_paths_emit_trace_summary_before_return(self):
         source = (ROOT / "hitag_s_8268.c").read_text()
-        debug_read = source.split("HitagSResult hitag_s_debug_read_sequence", 1)[1]
+        debug_read = source.split("HitagSResult hitag_s_debug_read_sequence_ex", 1)[1]
 
         self.assertIn("hitag_s_debug_read_finish", source)
-        self.assertIn("ABORT: UID request failed", debug_read)
-        self.assertIn("ABORT: SELECT failed", debug_read)
+        self.assertIn("ABORT: UID/SELECT session failed", debug_read)
         self.assertIn("ABORT: AUTH failed", debug_read)
-        self.assertGreaterEqual(debug_read.count("hitag_s_debug_read_finish("), 4)
+        self.assertGreaterEqual(debug_read.count("hitag_s_debug_read_finish("), 3)
         self.assertEqual(debug_read.count("hitag_s_field_off()"), 0)
 
     def test_em4100_write_verifies_final_config_page(self):
@@ -128,6 +127,19 @@ class SourceInvariantTests(unittest.TestCase):
         self.assertIn("hitag_s_write_page_verify(5, em_data->data_lo)", write_em)
         self.assertIn("hitag_s_write_page_verify(1, new_config)", write_em)
         self.assertNotIn("hitag_s_write_page(1, new_config)", write_em)
+
+    def test_write_page_records_trace_for_offline_write_diagnosis(self):
+        source = (ROOT / "hitag_s_session.c").read_text()
+        write_page = source.split("HitagSResult hitag_s_write_page", 1)[1].split(
+            "HitagSResult hitag_s_read_page", 1
+        )[0]
+
+        self.assertIn("--- WRITE_PAGE %d ---", write_page)
+        self.assertIn("TX: WRITE_PAGE addr=%d CRC=%02X", write_page)
+        self.assertIn("TX_FRAME: frame=", write_page)
+        self.assertIn("step1: ACK OK", write_page)
+        self.assertIn("TX: Data=%08lX CRC=%02X", write_page)
+        self.assertIn("step2: ACK OK", write_page)
 
     def test_uid_request_trace_includes_packed_frame_bytes_for_model_comparison(self):
         source = (ROOT / "hitag_s_session.c").read_text()
@@ -147,8 +159,8 @@ class SourceInvariantTests(unittest.TestCase):
 
         self.assertIn("marginal_uid_valid", uid_request)
         self.assertIn("hitag_s_capture_is_marginal_uid_candidate", uid_request)
-        self.assertIn("RESULT: OK, UID=%08lX (mode=%s, AC2K, marginal)", uid_request)
-        self.assertIn("using marginal noisy AC2K UID", uid_request)
+        self.assertIn("RESULT: OK, UID=%08lX (mode=%s, %s, marginal)", uid_request)
+        self.assertIn("using marginal noisy UID", uid_request)
 
     def test_uid_request_uses_high_vote_start01_consensus_as_last_fallback(self):
         source = (ROOT / "hitag_s_session.c").read_text()
@@ -194,13 +206,77 @@ class SourceInvariantTests(unittest.TestCase):
     def test_all_uid_request_modes_decode_uid_without_extra_sof_strip(self):
         source = (ROOT / "hitag_s_session.c").read_text()
         proto_modes = source.split("static const HitagSProtoMode proto_modes[]", 1)[1].split(
-            "};",
+            "static size_t active_mode_idx",
             1,
         )[0]
 
-        self.assertIn('{0x06, "STD", 0, 1, false}', proto_modes)
-        self.assertIn('{0x19, "ADV1", 0, 6, true}', proto_modes)
-        self.assertIn('{0x18, "ADV2", 0, 6, true}', proto_modes)
+        self.assertIn('"FADV"', proto_modes)
+        self.assertIn('"ADV1"', proto_modes)
+        self.assertIn('"ADV2"', proto_modes)
+        self.assertIn('"STD"', proto_modes)
+        self.assertLess(proto_modes.index('"FADV"'), proto_modes.index('"ADV1"'))
+        self.assertLess(proto_modes.index('"ADV1"'), proto_modes.index('"ADV2"'))
+        self.assertLess(proto_modes.index('"ADV2"'), proto_modes.index('"STD"'))
+        self.assertIn("HitagSRxAC4K", proto_modes)
+        self.assertIn("HitagSRxMC8K", proto_modes)
+        self.assertIn("select_response_bits", proto_modes)
+
+    def test_public_debug_read_session_types_are_declared(self):
+        header = (ROOT / "hitag_s_proto.h").read_text()
+
+        for token in (
+            "typedef enum {\n    HitagSModeStd",
+            "HitagSModeAdv1",
+            "HitagSModeAdv2",
+            "HitagSModeFadv",
+            "HitagSRxAC4K",
+            "HitagSRxMC8K",
+            "HitagSSessionInfo",
+            "HitagSPageStatus",
+            "HitagSDebugReadReport",
+            "hitag_s_open_session",
+            "hitag_s_debug_read_sequence_ex",
+        ):
+            self.assertIn(token, header)
+
+    def test_session_data_rx_comes_from_active_mode(self):
+        source = (ROOT / "hitag_s_session.c").read_text()
+
+        self.assertIn("hitag_s_data_rx_mode()", source)
+        self.assertIn("hitag_s_select_expected_bits()", source)
+
+        for block_name, next_name in (
+            ("static HitagSResult hitag_s_select_frame", "HitagSResult hitag_s_select"),
+            ("HitagSResult hitag_s_8268_authenticate", "HitagSResult hitag_s_write_page"),
+            ("HitagSResult hitag_s_write_page", "HitagSResult hitag_s_read_page"),
+            ("HitagSResult hitag_s_read_page", None),
+        ):
+            block = source.split(block_name, 1)[1]
+            if next_name:
+                block = block.split(next_name, 1)[0]
+            self.assertNotIn("HitagSRxMC4K", block)
+            self.assertIn("hitag_s_data_rx_mode()", block)
+
+    def test_open_session_closes_uid_select_in_same_mode(self):
+        source = (ROOT / "hitag_s_session.c").read_text()
+        open_session = source.split("HitagSResult hitag_s_open_session", 1)[1].split(
+            "HitagSResult hitag_s_8268_authenticate", 1
+        )[0]
+
+        self.assertIn("hitag_s_uid_request_mode", open_session)
+        self.assertIn("hitag_s_select_current_mode", open_session)
+        self.assertIn("session->selected = true", open_session)
+        self.assertIn("field reset before next protocol mode", open_session)
+
+    def test_debug_read_ex_reports_stage_and_page_status(self):
+        source = (ROOT / "hitag_s_8268.c").read_text()
+        debug_read_ex = source.split("HitagSResult hitag_s_debug_read_sequence_ex", 1)[1]
+
+        self.assertIn("report->failure_stage", debug_read_ex)
+        self.assertIn("HitagSPageStatusSkippedProtected", debug_read_ex)
+        self.assertIn("HitagSPageStatusReadError", debug_read_ex)
+        self.assertIn("hitag_s_open_session", debug_read_ex)
+        self.assertIn("READ_PAGE 1", debug_read_ex)
 
     def test_rx_trace_records_window_timing_metadata(self):
         source = (ROOT / "hitag_s_session.c").read_text()

@@ -26,13 +26,37 @@ static const char* hitags_writer_scene_debug_read_status_text(HitagSApp* app) {
 
     switch(app->last_result) {
     case HitagSResultTimeout:
-        return "Stopped on\nRF timeout";
+        snprintf(
+            app->text_store,
+            sizeof(app->text_store),
+            "Mode:%s\nStage:%s timeout",
+            hitag_s_mode_name(app->debug_mode),
+            app->debug_stage);
+        return app->text_store;
     case HitagSResultNack:
-        return "Stopped on\nNACK/Auth";
+        snprintf(
+            app->text_store,
+            sizeof(app->text_store),
+            "Mode:%s\nStage:%s NACK",
+            hitag_s_mode_name(app->debug_mode),
+            app->debug_stage);
+        return app->text_store;
     case HitagSResultCrcError:
-        return "Stopped on\nCRC check";
+        snprintf(
+            app->text_store,
+            sizeof(app->text_store),
+            "Mode:%s\nStage:%s CRC",
+            hitag_s_mode_name(app->debug_mode),
+            app->debug_stage);
+        return app->text_store;
     default:
-        return "Stopped on\nprotocol step";
+        snprintf(
+            app->text_store,
+            sizeof(app->text_store),
+            "Mode:%s\nStage:%s error",
+            hitag_s_mode_name(app->debug_mode),
+            app->debug_stage);
+        return app->text_store;
     }
 }
 
@@ -128,8 +152,9 @@ bool hitags_writer_scene_debug_read_on_event(void* context, SceneManagerEvent ev
             snprintf(
                 app->text_store,
                 sizeof(app->text_store),
-                "UID:%08lX\n%d/%d pgs read\nTrace ready",
+                "UID:%08lX\nMode:%s\n%d/%d pgs read",
                 (unsigned long)app->tag_uid,
+                hitag_s_mode_name(app->debug_mode),
                 app->dump_read_count,
                 app->dump_max_page + 1);
             widget_add_string_multiline_element(

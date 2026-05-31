@@ -255,6 +255,8 @@ static void hitags_worker_debug_read(HitagSApp* app) {
     app->dump_max_page = 0;
     app->dump_read_count = 0;
     app->tag_uid = 0;
+    app->debug_mode = HitagSModeStd;
+    app->debug_stage = "-";
 
     if(app->debug_trace) {
         furi_string_free((FuriString*)app->debug_trace);
@@ -264,8 +266,11 @@ static void hitags_worker_debug_read(HitagSApp* app) {
     hitag_s_debug_trace_start();
 
     uint32_t config = 0;
-    app->last_result = hitag_s_debug_read_sequence(
-        &app->tag_uid, &config, app->dump_pages, app->dump_valid, &app->dump_max_page);
+    HitagSDebugReadReport report;
+    app->last_result = hitag_s_debug_read_sequence_ex(
+        &app->tag_uid, &config, app->dump_pages, app->dump_valid, &app->dump_max_page, &report);
+    app->debug_mode = report.session.mode;
+    app->debug_stage = report.failure_stage ? report.failure_stage : "-";
 
     app->debug_trace = hitag_s_debug_trace_stop();
 
