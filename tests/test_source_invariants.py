@@ -336,9 +336,32 @@ class SourceInvariantTests(unittest.TestCase):
         )[0]
 
         self.assertNotIn("e[%d]", send_receive)
+        self.assertNotIn("FURI_LOG_D(", send_receive)
         self.assertNotIn("FURI_LOG_I(", ac_decode)
         self.assertNotIn("FURI_LOG_I(", mc_decode)
         self.assertNotIn("p[%d]", ac_decode)
+
+    def test_uid_probe_rejection_logs_are_summarized(self):
+        source = (ROOT / "hitag_s_session.c").read_text()
+        uid_request = source.split("HitagSResult hitag_s_uid_request", 1)[1].split(
+            "static HitagSResult hitag_s_select_frame", 1
+        )[0]
+
+        self.assertIn("low_entropy_rejects", uid_request)
+        self.assertIn("noisy_rejects", uid_request)
+        self.assertIn("partial_noisy_rejects", uid_request)
+        self.assertNotIn("UID try %d: rejected low-entropy", uid_request)
+        self.assertNotIn("UID try %d: rejected noisy", uid_request)
+
+    def test_field_reset_does_not_flood_runtime_log(self):
+        transport = (ROOT / "hitag_s_transport.c").read_text()
+        field_on = transport.split("void hitag_s_field_on", 1)[1].split(
+            "void hitag_s_field_off", 1
+        )[0]
+        field_off = transport.split("void hitag_s_field_off", 1)[1]
+
+        self.assertNotIn("FURI_LOG_D", field_on)
+        self.assertNotIn("FURI_LOG_D", field_off)
 
     def test_rx_trace_records_window_timing_metadata(self):
         source = (ROOT / "hitag_s_session.c").read_text()

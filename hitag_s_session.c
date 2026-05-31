@@ -459,23 +459,11 @@ static size_t hitag_s_send_receive(
         (int)hs_capture.edge_count);
 
     if(hs_capture.edge_count == 0) {
-        if(!hitag_s_trace_is_active()) {
-            FURI_LOG_D(TAG, "RX: no edges (timeout %lu us)", (unsigned long)rx_timeout_us);
-        }
         trace_append("  RX: no edges (timeout %lu us)\n", (unsigned long)rx_timeout_us);
         return 0;
     }
 
     const char* mode_str = hitag_s_rx_mode_name(rx_mode);
-
-    if(!hitag_s_trace_is_active()) {
-        FURI_LOG_D(
-            TAG,
-            "RX: %d edges%s (mode=%s)",
-            (int)hs_capture.edge_count,
-            hs_capture.overflow ? " [OVERFLOW]" : "",
-            mode_str);
-    }
 
     /* Trace: log a bounded prefix of raw edges to avoid exhausting heap on noisy captures. */
     if(hitag_s_trace_is_active()) {
@@ -698,6 +686,12 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
         bool had_decode = false;
         bool marginal_uid_valid = false;
         uint32_t marginal_uid = 0;
+        size_t low_entropy_rejects = 0;
+        size_t noisy_rejects = 0;
+        size_t partial_noisy_rejects = 0;
+        size_t marginal_noisy_candidates = 0;
+        size_t mode_partial_uid_responses = 0;
+        size_t mode_empty_uid_responses = 0;
 
         for(size_t attempt = 0; attempt < 6; attempt++) {
             uint8_t rx[4] = {0};
@@ -749,12 +743,7 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
                 had_decode = true;
 
                 if(hitag_s_codec_is_low_entropy_uid(current_uid)) {
-                    FURI_LOG_W(
-                        TAG,
-                        "%s UID try %d: rejected low-entropy UID %08lX",
-                        proto_modes[c].name,
-                        (int)(attempt + 1),
-                        (unsigned long)current_uid);
+                    low_entropy_rejects++;
                     trace_append(
                         "  %s: rejected low-entropy UID=%08lX\n",
                         proto_modes[c].name,
@@ -767,22 +756,13 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
                     if(hitag_s_capture_is_marginal_uid_candidate(&hs_capture)) {
                         marginal_uid = current_uid;
                         marginal_uid_valid = true;
-                        FURI_LOG_W(
-                            TAG,
-                            "%s UID try %d: keeping marginal noisy AC2K UID %08lX",
-                            proto_modes[c].name,
-                            (int)(attempt + 1),
-                            (unsigned long)marginal_uid);
+                        marginal_noisy_candidates++;
                         trace_append(
                             "  %s: keeping marginal noisy AC2K UID=%08lX\n",
                             proto_modes[c].name,
                             (unsigned long)marginal_uid);
                     } else {
-                        FURI_LOG_W(
-                            TAG,
-                            "%s UID try %d: rejected noisy AC2K capture",
-                            proto_modes[c].name,
-                            (int)(attempt + 1));
+                        noisy_rejects++;
                         trace_append("  %s: rejected noisy AC2K capture\n", proto_modes[c].name);
                     }
                     furi_delay_us(HITAG_S_T_WAIT_SC_US);
@@ -807,6 +787,7 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
                 had_decode = true;
                 if(hitag_s_capture_is_partial_uid_response(&hs_capture, rx_bits)) {
                     partial_uid_responses++;
+                    mode_partial_uid_responses++;
                     trace_append(
                         "  %s: partial UID response (%d bits, count=%d)\n",
                         proto_modes[c].name,
@@ -823,16 +804,12 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
                     }
                 }
                 if(hitag_s_capture_has_excessive_glitches(&hs_capture)) {
-                    FURI_LOG_W(
-                        TAG,
-                        "%s UID try %d: rejected noisy partial AC2K capture (%d bits)",
-                        proto_modes[c].name,
-                        (int)(attempt + 1),
-                        (int)rx_bits);
+                    partial_noisy_rejects++;
                     trace_append("  %s: rejected noisy AC2K capture\n", proto_modes[c].name);
                 }
             } else if(hs_capture.edge_count <= 2) {
                 empty_uid_responses++;
+                mode_empty_uid_responses++;
                 trace_append(
                     "  %s: empty UID response (edges=%d, count=%d)\n",
                     proto_modes[c].name,
@@ -880,7 +857,16 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
         }
 
         if(had_decode) {
-            FURI_LOG_W(TAG, "%s: UID decoded but unstable", proto_modes[c].name);
+            FURI_LOG_W(
+                TAG,
+                "%s: UID unstable (low_entropy=%d noisy=%d partial_noisy=%d marginal=%d partial=%d empty=%d)",
+                proto_modes[c].name,
+                (int)low_entropy_rejects,
+                (int)noisy_rejects,
+                (int)partial_noisy_rejects,
+                (int)marginal_noisy_candidates,
+                (int)mode_partial_uid_responses,
+                (int)mode_empty_uid_responses);
             trace_append("  %s: UID decoded but unstable\n", proto_modes[c].name);
         } else {
             FURI_LOG_W(TAG, "%s: no valid 32-bit UID response", proto_modes[c].name);

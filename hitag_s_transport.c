@@ -7,8 +7,6 @@
 #include <furi.h>
 #include <furi_hal.h>
 
-#define TAG "HitagSTransport"
-
 static void hitag_s_send_bit(bool value) {
     uint32_t t_low = HITAG_S_T_LOW_CYCLES * HITAG_S_T0_US;
     uint32_t t_total = value ? HITAG_S_T_1_CYCLES * HITAG_S_T0_US :
@@ -69,11 +67,9 @@ void hitag_s_field_on(void) {
     furi_hal_rfid_tim_read_start(125000, 0.5f);
     furi_hal_rfid_pin_pull_release();
     furi_delay_us(HITAG_S_T_WAIT_POWERUP_US);
-    FURI_LOG_D(TAG, "Field ON, carrier 125kHz, antenna pull released");
 }
 
 void hitag_s_field_off(void) {
     furi_hal_rfid_tim_read_stop();
     furi_hal_rfid_pins_reset();
-    FURI_LOG_D(TAG, "Field OFF");
 }
