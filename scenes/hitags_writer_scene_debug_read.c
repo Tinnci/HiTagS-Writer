@@ -8,6 +8,7 @@
  */
 
 #include "../hitags_writer_i.h"
+#include <string.h>
 
 #define HITAGS_TRACE_FOLDER    EXT_PATH("lfrfid")
 #define HITAGS_TRACE_EXTENSION ".htsd"
@@ -58,6 +59,13 @@ static const char* hitags_writer_scene_debug_read_status_text(HitagSApp* app) {
             app->debug_stage);
         return app->text_store;
     }
+}
+
+static const char* hitags_writer_scene_debug_read_failed_text(HitagSApp* app) {
+    if(app->debug_stage && strcmp(app->debug_stage, "NOISE") == 0) {
+        return "Noise Only\nSave disabled.";
+    }
+    return "No valid UID\nSave disabled.";
 }
 
 static void hitags_writer_scene_debug_read_save_trace(HitagSApp* app) {
@@ -220,7 +228,7 @@ bool hitags_writer_scene_debug_read_on_event(void* context, SceneManagerEvent ev
                 AlignCenter,
                 AlignTop,
                 FontSecondary,
-                "Capture failed.\nTry again.");
+                hitags_writer_scene_debug_read_failed_text(app));
             widget_add_button_element(
                 widget, GuiButtonTypeLeft, "Back", hitags_writer_widget_callback, app);
             widget_add_button_element(

@@ -53,6 +53,15 @@ class DebugReadUiTests(unittest.TestCase):
 
         self.assertIn("app->tag_uid = 0", init_block)
 
+    def test_rejected_noise_failure_is_not_shown_as_capture_failure(self):
+        root = Path(__file__).resolve().parents[1]
+        scene = (root / "scenes/hitags_writer_scene_debug_read.c").read_text()
+        worker = (root / "hitags_worker.c").read_text()
+
+        self.assertIn('"NOISE"', worker)
+        self.assertIn('"Noise Only\\nSave disabled."', scene)
+        self.assertNotIn('"Capture failed.\\nTry again."', scene)
+
 
 if __name__ == "__main__":
     unittest.main()

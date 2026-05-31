@@ -31,6 +31,7 @@ static void hitags_worker_count_any_dump_pages(HitagSApp* app) {
 }
 
 static bool hitags_worker_probe_htu_once(const char* flow) {
+    FURI_LOG_I(TAG, "%s: probing Hitag µ/8265 READ UID", flow);
     HitagHtuProbeInfo htu = {0};
     HitagSResult result = hitag_htu_probe_uid_sequence(&htu);
     if(result != HitagSResultOk || !htu.detected) return false;
@@ -88,6 +89,7 @@ static void hitags_worker_read_uid(HitagSApp* app) {
     FURI_LOG_I(TAG, "Scanning for UID...");
 
     const int max_attempts = 15;
+    bool htu_probe_done = false;
     for(int attempts = 1; !hitags_worker_should_stop(); attempts++) {
         app->last_result = hitag_s_read_uid_sequence(&app->tag_uid);
 
@@ -97,9 +99,16 @@ static void hitags_worker_read_uid(HitagSApp* app) {
             return;
         }
 
+        if(!htu_probe_done) {
+            htu_probe_done = true;
+            if(hitags_worker_probe_htu_once("Read UID")) {
+                view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventReadFailed);
+                return;
+            }
+        }
+
         if(attempts >= max_attempts) {
             FURI_LOG_W(TAG, "UID read failed after %d attempts", attempts);
-            hitags_worker_probe_htu_once("Read UID");
             view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventReadFailed);
             return;
         }
@@ -113,6 +122,7 @@ static void hitags_worker_read_pages(HitagSApp* app) {
 
     uint8_t page_addrs[3] = {1, 4, 5};
     const int max_attempts = 15;
+    bool htu_probe_done = false;
 
     for(int attempts = 1; !hitags_worker_should_stop(); attempts++) {
         app->last_result = hitag_s_8268_read_sequence(
@@ -137,9 +147,16 @@ static void hitags_worker_read_pages(HitagSApp* app) {
             }
         }
 
+        if(!htu_probe_done) {
+            htu_probe_done = true;
+            if(hitags_worker_probe_htu_once("Read Tag Data")) {
+                view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventReadFailed);
+                return;
+            }
+        }
+
         if(attempts >= max_attempts) {
             FURI_LOG_W(TAG, "Read failed after %d attempts", attempts);
-            hitags_worker_probe_htu_once("Read Tag Data");
             view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventReadFailed);
             return;
         }
@@ -312,6 +329,7 @@ static void hitags_worker_debug_read(HitagSApp* app) {
         view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventDebugPartial);
     } else if(app->debug_trace && !report.session.selected && !report.htu_probe.detected) {
         FURI_LOG_W(TAG, "Debug read captured only rejected noise; trace save disabled");
+        app->debug_stage = "NOISE";
         furi_string_free((FuriString*)app->debug_trace);
         app->debug_trace = NULL;
         view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventDebugFailed);

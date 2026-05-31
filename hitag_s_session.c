@@ -632,6 +632,7 @@ HitagSResult hitag_htu_probe_uid(HitagHtuProbeInfo* info) {
     size_t tx_bits = 0;
     uint16_t tx_crc = hitag_htu_codec_build_read_uid_frame(tx, &tx_bits);
 
+    FURI_LOG_I(TAG, "HTU/8265 probe: READ UID (bits=%d crc=%04X)", (int)tx_bits, tx_crc);
     trace_append("\n--- HTU_8265_PROBE ---\n");
     trace_append("  TX: HTU_READ_UID flags=CRCT cmd=0x02 crc=%04X\n", tx_crc);
     trace_append(
@@ -658,9 +659,11 @@ HitagSResult hitag_htu_probe_uid(HitagHtuProbeInfo* info) {
 
     if(!ok) {
         if(rx_bits == 0) {
+            FURI_LOG_I(TAG, "HTU/8265 probe: no response");
             trace_append("  RESULT: no HTU READ UID response\n");
             return HitagSResultTimeout;
         }
+        FURI_LOG_W(TAG, "HTU/8265 probe: rejected response bits=%d crc16=bad", (int)rx_bits);
         trace_append("  RESULT: HTU READ UID response rejected bits=%d crc16=bad\n", (int)rx_bits);
         return HitagSResultCrcError;
     }

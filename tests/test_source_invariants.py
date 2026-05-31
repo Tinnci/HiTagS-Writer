@@ -369,6 +369,26 @@ class SourceInvariantTests(unittest.TestCase):
 
         self.assertIn("hitags_worker_probe_htu_once(\"Read UID\")", read_uid)
         self.assertIn("hitags_worker_probe_htu_once(\"Read Tag Data\")", read_pages)
+        self.assertIn("htu_probe_done", read_uid)
+        self.assertIn("htu_probe_done", read_pages)
+        self.assertLess(
+            read_uid.index("hitags_worker_probe_htu_once(\"Read UID\")"),
+            read_uid.index("if(attempts >= max_attempts)"),
+        )
+        self.assertLess(
+            read_pages.index("hitags_worker_probe_htu_once(\"Read Tag Data\")"),
+            read_pages.index("if(attempts >= max_attempts)"),
+        )
+
+    def test_htu_probe_logs_negative_results_to_runtime_log(self):
+        source = (ROOT / "hitag_s_session.c").read_text()
+        probe = source.split("HitagSResult hitag_htu_probe_uid", 1)[1].split(
+            "HitagSResult hitag_htu_probe_uid_sequence", 1
+        )[0]
+
+        self.assertIn("HTU/8265 probe: READ UID", probe)
+        self.assertIn("HTU/8265 probe: no response", probe)
+        self.assertIn("HTU/8265 probe: rejected response", probe)
 
     def test_rf_decode_hot_path_does_not_flood_runtime_log(self):
         source = (ROOT / "hitag_s_session.c").read_text()
