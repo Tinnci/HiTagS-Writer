@@ -182,6 +182,7 @@ static inline bool hitag_s_page_locked(const HitagSConfig* cfg, uint8_t page) {
 #define HITAG_S_T_CODE_VIOLATION_CYCLES 36 /* Hitag µ SOF code-violation carrier tail */
 #define HITAG_S_T_WAIT_POWERUP_US       3000 /* Power-up + START_AUTH window margin */
 #define HITAG_S_T_WAIT_SC_US            1600 /* Standard command wait (200 × T0, spec: 90..5000) */
+#define HITAG_S_T_WAIT_FIRST_US         2400 /* Hitag µ first command wait (300 × T0, PM3 T_wfc) */
 #define HITAG_S_T_WAIT_INTER_US         400 /* After RX idle, top up to about T_WAIT_SC before next TX */
 #define HITAG_S_T_WAIT_RESP_US          200 /* Wait for tag response */
 #define HITAG_S_T_RX_IDLE_US            1200 /* Stop receive after response edges go idle */
@@ -308,6 +309,15 @@ void hitag_s_send_htu_frame_with_early_rx(
  * @brief Start 125 kHz carrier for Hitag S communication
  */
 void hitag_s_field_on(void);
+
+/**
+ * @brief Start 125 kHz carrier without waiting for the Hitag S power-up margin
+ *
+ * Hitag µ / PCF7931 style probes must send the first command in the early
+ * T_wfc window after field reset. The generic Hitag S wait can be too late
+ * and let a TTF/EM4100 broadcast start first.
+ */
+void hitag_s_field_on_no_wait(void);
 
 /**
  * @brief Stop 125 kHz carrier

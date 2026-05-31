@@ -108,3 +108,8 @@ void hitag_s_field_off(void) {
     furi_hal_rfid_tim_read_stop();
     furi_hal_rfid_pins_reset();
 }
+
+void hitag_s_field_on_no_wait(void) {
+    furi_hal_rfid_tim_read_start(125000, 0.5f);
+    furi_hal_rfid_pin_pull_release();
+}

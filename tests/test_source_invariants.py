@@ -406,6 +406,25 @@ class SourceInvariantTests(unittest.TestCase):
         self.assertIn("HTU candidate", source)
         self.assertIn("candidates_tried", probe)
 
+    def test_htu_probe_uses_pm3_style_first_wait_field_reset(self):
+        header = (ROOT / "hitag_s_proto.h").read_text()
+        transport = (ROOT / "hitag_s_transport.c").read_text()
+        session = (ROOT / "hitag_s_session.c").read_text()
+        sequence = session.split("HitagSResult hitag_htu_probe_uid_sequence", 1)[1].split(
+            "/* ============================================================\n"
+            " * Hitag S Command Builders",
+            1,
+        )[0]
+
+        self.assertIn("HITAG_S_T_WAIT_FIRST_US", header)
+        self.assertIn("hitag_s_field_on_no_wait", header)
+        self.assertIn("void hitag_s_field_on_no_wait", transport)
+        self.assertIn("HITAG_HTU_WAKE_DELAYS_US", session)
+        self.assertIn("HITAG_S_T_WAIT_FIRST_US", sequence)
+        self.assertIn("hitag_s_field_on_no_wait()", sequence)
+        self.assertIn("HTU wake attempt", sequence)
+        self.assertNotIn("hitag_s_field_on();", sequence)
+
     def test_tools_menu_has_dedicated_htu_probe_entry(self):
         config = (ROOT / "scenes/hitags_writer_scene_config.h").read_text()
         tools_menu = (ROOT / "scenes/hitags_writer_scene_tools_menu.c").read_text()

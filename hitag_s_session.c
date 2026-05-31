@@ -54,6 +54,16 @@ static void trace_append(const char* fmt, ...) {
 #define HITAG_HTU_RESPONSE_BITS         65
 #define HITAG_HTU_MAX_CANDIDATE_BITS    96
 #define HITAG_HTU_TRACE_CANDIDATE_LIMIT 24
+#define HITAG_HTU_FIELD_RESET_US        6000
+
+static const uint32_t HITAG_HTU_WAKE_DELAYS_US[] = {
+    HITAG_S_T_WAIT_FIRST_US - (20U * HITAG_S_T0_US),
+    HITAG_S_T_WAIT_FIRST_US,
+    HITAG_S_T_WAIT_FIRST_US + (20U * HITAG_S_T0_US),
+    HITAG_S_T_WAIT_FIRST_US + (50U * HITAG_S_T0_US),
+    HITAG_S_T_WAIT_FIRST_US + (100U * HITAG_S_T0_US),
+    HITAG_S_T_WAIT_FIRST_US + (200U * HITAG_S_T0_US),
+};
 
 /* Edge capture context */
 typedef struct {
@@ -440,6 +450,15 @@ static uint32_t hitag_htu_candidate_score(size_t bits, uint16_t residue) {
                             (uint32_t)(HITAG_HTU_RESPONSE_BITS - bits);
     if(bits >= HITAG_HTU_RESPONSE_BITS && residue != 0) distance += 100;
     return distance;
+}
+
+static uint32_t hitag_htu_probe_info_score(const HitagHtuProbeInfo* info, HitagSResult result) {
+    if(result == HitagSResultOk) return 0;
+    if(!info || !info->had_activity) return 100000U + (uint32_t)result;
+
+    uint32_t score = hitag_htu_candidate_score(info->response_bits, info->best_residue);
+    if(info->ttf_broadcast) score += 1000U;
+    return score;
 }
 
 static void hitag_htu_probe_note_candidate(
@@ -1004,10 +1023,53 @@ HitagSResult hitag_htu_probe_uid(HitagHtuProbeInfo* info) {
 }
 
 HitagSResult hitag_htu_probe_uid_sequence(HitagHtuProbeInfo* info) {
-    hitag_s_field_on();
-    HitagSResult result = hitag_htu_probe_uid(info);
-    hitag_s_field_off();
-    return result;
+    HitagHtuProbeInfo best_info = {0};
+    HitagSResult best_result = HitagSResultTimeout;
+    uint32_t best_score = 0xFFFFFFFFU;
+
+    for(size_t i = 0; i < COUNT_OF(HITAG_HTU_WAKE_DELAYS_US); i++) {
+        const uint32_t wake_delay_us = HITAG_HTU_WAKE_DELAYS_US[i];
+        HitagHtuProbeInfo attempt_info = {0};
+
+        hitag_s_field_off();
+        furi_delay_us(HITAG_HTU_FIELD_RESET_US);
+        hitag_s_field_on_no_wait();
+        furi_delay_us(wake_delay_us);
+
+        FURI_LOG_I(
+            TAG,
+            "HTU wake attempt %d/%d delay_us=%lu",
+            (int)(i + 1),
+            (int)COUNT_OF(HITAG_HTU_WAKE_DELAYS_US),
+            (unsigned long)wake_delay_us);
+        trace_append(
+            "\n--- HTU_WAKE attempt=%d/%d delay_us=%lu pm3_first_wait_us=%lu reset_us=%lu ---\n",
+            (int)(i + 1),
+            (int)COUNT_OF(HITAG_HTU_WAKE_DELAYS_US),
+            (unsigned long)wake_delay_us,
+            (unsigned long)HITAG_S_T_WAIT_FIRST_US,
+            (unsigned long)HITAG_HTU_FIELD_RESET_US);
+
+        HitagSResult result = hitag_htu_probe_uid(&attempt_info);
+        hitag_s_field_off();
+
+        if(result == HitagSResultOk) {
+            if(info) *info = attempt_info;
+            return result;
+        }
+
+        uint32_t score = hitag_htu_probe_info_score(&attempt_info, result);
+        if(score < best_score) {
+            best_score = score;
+            best_result = result;
+            best_info = attempt_info;
+        }
+
+        furi_delay_ms(2);
+    }
+
+    if(info) *info = best_info;
+    return best_result;
 }
 
 /* ============================================================
