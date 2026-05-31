@@ -254,6 +254,7 @@ static void hitags_worker_debug_read(HitagSApp* app) {
     memset(app->dump_valid, 0, sizeof(app->dump_valid));
     app->dump_max_page = 0;
     app->dump_read_count = 0;
+    app->tag_uid = 0;
 
     if(app->debug_trace) {
         furi_string_free((FuriString*)app->debug_trace);

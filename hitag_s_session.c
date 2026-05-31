@@ -549,6 +549,11 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
             "  TX: UID_REQ_%s (5 bits, val=0x%02X)\n",
             proto_modes[c].name,
             proto_modes[c].cmd_5bit);
+        trace_append(
+            "  TX_FRAME: frame=%02X bits=%d tx_us=%lu\n",
+            cmd[0],
+            (int)bit_pos,
+            (unsigned long)hitag_s_codec_bplm_frame_duration_us(cmd, bit_pos));
 
         bool had_decode = false;
 

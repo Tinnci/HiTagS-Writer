@@ -1,6 +1,6 @@
 /**
  * @file hitags_writer_scene_read_tag.c
- * @brief Read Tag scene — reads EM4100 data from HiTag S 8268 tag
+ * @brief Read 8268 pages scene — reads EM4100 data from HiTag S 8268 pages
  *
  * Continuously scans for a tag. On success, displays the decoded EM4100 ID
  * and page data. Uses worker thread for non-blocking RF operations.
@@ -13,8 +13,8 @@ void hitags_writer_scene_read_tag_on_enter(void* context) {
     Popup* popup = app->popup;
 
     /* Show scanning popup with dolphin icon */
-    popup_set_header(popup, "Reading...", 89, 30, AlignCenter, AlignTop);
-    popup_set_text(popup, "Place tag on\nFlipper back", 89, 43, AlignCenter, AlignTop);
+    popup_set_header(popup, "Reading 8268...", 89, 30, AlignCenter, AlignTop);
+    popup_set_text(popup, "Reading pages\n1, 4, 5", 89, 43, AlignCenter, AlignTop);
     popup_set_icon(popup, 0, 3, &I_NFC_manual_60x50);
 
     view_dispatcher_switch_to_view(app->view_dispatcher, HitagSViewPopup);
@@ -75,7 +75,7 @@ bool hitags_writer_scene_read_tag_on_event(void* context, SceneManagerEvent even
             const char* errmsg;
             switch(app->last_result) {
             case HitagSResultTimeout:
-                errmsg = "No tag found.\nPlace tag on\nFlipper back.";
+                errmsg = "8268 protocol\ntimeout.\nTry Debug Read.";
                 break;
             case HitagSResultNack:
                 errmsg = "Auth rejected.\nWrong password\nor not 8268?";
@@ -103,9 +103,8 @@ bool hitags_writer_scene_read_tag_on_event(void* context, SceneManagerEvent even
         } else if(event.event == GuiButtonTypeRight) {
             /* Retry: restart worker */
             widget_reset(app->widget);
-            popup_set_header(app->popup, "Reading...", 89, 30, AlignCenter, AlignTop);
-            popup_set_text(
-                app->popup, "Place tag on\nFlipper back", 89, 43, AlignCenter, AlignTop);
+            popup_set_header(app->popup, "Reading 8268...", 89, 30, AlignCenter, AlignTop);
+            popup_set_text(app->popup, "Reading pages\n1, 4, 5", 89, 43, AlignCenter, AlignTop);
             popup_set_icon(app->popup, 0, 3, &I_NFC_manual_60x50);
             view_dispatcher_switch_to_view(app->view_dispatcher, HitagSViewPopup);
             notification_message(app->notifications, &sequence_blink_start_cyan);

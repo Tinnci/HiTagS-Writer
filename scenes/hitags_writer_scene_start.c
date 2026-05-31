@@ -6,16 +6,10 @@
 #include "../hitags_writer_i.h"
 
 typedef enum {
-    SubmenuIndexWriteEM4100,
-    SubmenuIndexLoadFile,
-    SubmenuIndexReadTag,
-    SubmenuIndexReadUID,
-    SubmenuIndexWriteUID,
-    SubmenuIndexFullDump,
-    SubmenuIndexLoadDump,
-    SubmenuIndexWipeTag,
-    SubmenuIndexDebugRead,
-    SubmenuIndexAbout,
+    SubmenuIndexRead,
+    SubmenuIndexWrite,
+    SubmenuIndexDump,
+    SubmenuIndexTools,
 } SubmenuIndex;
 
 static void hitags_writer_scene_start_submenu_callback(void* context, uint32_t index) {
@@ -28,66 +22,13 @@ void hitags_writer_scene_start_on_enter(void* context) {
     Submenu* submenu = app->submenu;
 
     submenu_add_item(
-        submenu,
-        "Write EM4100 ID",
-        SubmenuIndexWriteEM4100,
-        hitags_writer_scene_start_submenu_callback,
-        app);
-
+        submenu, "Read", SubmenuIndexRead, hitags_writer_scene_start_submenu_callback, app);
     submenu_add_item(
-        submenu,
-        "Load from File",
-        SubmenuIndexLoadFile,
-        hitags_writer_scene_start_submenu_callback,
-        app);
-
+        submenu, "Write", SubmenuIndexWrite, hitags_writer_scene_start_submenu_callback, app);
     submenu_add_item(
-        submenu,
-        "Read Tag Data",
-        SubmenuIndexReadTag,
-        hitags_writer_scene_start_submenu_callback,
-        app);
-
+        submenu, "Dump", SubmenuIndexDump, hitags_writer_scene_start_submenu_callback, app);
     submenu_add_item(
-        submenu,
-        "Read Tag UID",
-        SubmenuIndexReadUID,
-        hitags_writer_scene_start_submenu_callback,
-        app);
-
-    submenu_add_item(
-        submenu,
-        "Write Tag UID",
-        SubmenuIndexWriteUID,
-        hitags_writer_scene_start_submenu_callback,
-        app);
-
-    submenu_add_item(
-        submenu,
-        "Full Tag Dump",
-        SubmenuIndexFullDump,
-        hitags_writer_scene_start_submenu_callback,
-        app);
-
-    submenu_add_item(
-        submenu,
-        "Load & Clone Dump",
-        SubmenuIndexLoadDump,
-        hitags_writer_scene_start_submenu_callback,
-        app);
-
-    submenu_add_item(
-        submenu, "Wipe Tag", SubmenuIndexWipeTag, hitags_writer_scene_start_submenu_callback, app);
-
-    submenu_add_item(
-        submenu,
-        "Debug Read",
-        SubmenuIndexDebugRead,
-        hitags_writer_scene_start_submenu_callback,
-        app);
-
-    submenu_add_item(
-        submenu, "About", SubmenuIndexAbout, hitags_writer_scene_start_submenu_callback, app);
+        submenu, "Tools", SubmenuIndexTools, hitags_writer_scene_start_submenu_callback, app);
 
     submenu_set_selected_item(
         submenu, scene_manager_get_scene_state(app->scene_manager, HitagSSceneStart));
@@ -103,44 +44,20 @@ bool hitags_writer_scene_start_on_event(void* context, SceneManagerEvent event) 
         scene_manager_set_scene_state(app->scene_manager, HitagSSceneStart, event.event);
 
         switch(event.event) {
-        case SubmenuIndexWriteEM4100:
-            scene_manager_next_scene(app->scene_manager, HitagSSceneInputId);
+        case SubmenuIndexRead:
+            scene_manager_next_scene(app->scene_manager, HitagSSceneReadMenu);
             consumed = true;
             break;
-        case SubmenuIndexLoadFile:
-            scene_manager_next_scene(app->scene_manager, HitagSSceneSelectFile);
+        case SubmenuIndexWrite:
+            scene_manager_next_scene(app->scene_manager, HitagSSceneWriteMenu);
             consumed = true;
             break;
-        case SubmenuIndexReadTag:
-            scene_manager_next_scene(app->scene_manager, HitagSSceneReadTag);
+        case SubmenuIndexDump:
+            scene_manager_next_scene(app->scene_manager, HitagSSceneDumpMenu);
             consumed = true;
             break;
-        case SubmenuIndexReadUID:
-            scene_manager_next_scene(app->scene_manager, HitagSSceneReadUid);
-            consumed = true;
-            break;
-        case SubmenuIndexWriteUID:
-            scene_manager_next_scene(app->scene_manager, HitagSSceneWriteUid);
-            consumed = true;
-            break;
-        case SubmenuIndexFullDump:
-            scene_manager_next_scene(app->scene_manager, HitagSSceneFullDump);
-            consumed = true;
-            break;
-        case SubmenuIndexLoadDump:
-            scene_manager_next_scene(app->scene_manager, HitagSSceneLoadDump);
-            consumed = true;
-            break;
-        case SubmenuIndexWipeTag:
-            scene_manager_next_scene(app->scene_manager, HitagSSceneWipeTag);
-            consumed = true;
-            break;
-        case SubmenuIndexDebugRead:
-            scene_manager_next_scene(app->scene_manager, HitagSSceneDebugRead);
-            consumed = true;
-            break;
-        case SubmenuIndexAbout:
-            scene_manager_next_scene(app->scene_manager, HitagSSceneAbout);
+        case SubmenuIndexTools:
+            scene_manager_next_scene(app->scene_manager, HitagSSceneToolsMenu);
             consumed = true;
             break;
         default:

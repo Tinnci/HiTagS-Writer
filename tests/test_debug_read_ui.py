@@ -30,6 +30,15 @@ class DebugReadUiTests(unittest.TestCase):
         self.assertIn('"Trace_NoUID_%08lX"', save_block)
         self.assertIn("furi_hal_rtc_get_timestamp", save_block)
 
+    def test_debug_read_resets_stale_uid_before_capture(self):
+        worker = (Path(__file__).resolve().parents[1] / "hitags_worker.c").read_text()
+        debug_read = worker.split("static void hitags_worker_debug_read", 1)[1].split(
+            "int32_t hitags_writer_worker_thread", 1
+        )[0]
+        init_block = debug_read.split("if(app->debug_trace)", 1)[0]
+
+        self.assertIn("app->tag_uid = 0", init_block)
+
 
 if __name__ == "__main__":
     unittest.main()

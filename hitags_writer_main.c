@@ -76,6 +76,9 @@ static HitagSApp* hitags_writer_alloc(void) {
     /* LFRFID protocol dict for file loading */
     app->dict = protocol_dict_alloc(lfrfid_protocols, LFRFIDProtocolMax);
     app->protocol_id = PROTOCOL_NO;
+    app->protocol_id_next = PROTOCOL_NO;
+    app->read_type = LFRFIDWorkerReadTypeAuto;
+    app->lfworker = lfrfid_worker_alloc(app->dict);
 
     /* Worker thread */
     app->worker_thread = furi_thread_alloc_ex(
@@ -140,6 +143,9 @@ static void hitags_writer_free(HitagSApp* app) {
     }
 
     /* Protocol dict */
+    lfrfid_worker_stop(app->lfworker);
+    lfrfid_worker_stop_thread(app->lfworker);
+    lfrfid_worker_free(app->lfworker);
     protocol_dict_free(app->dict);
 
     /* Views */

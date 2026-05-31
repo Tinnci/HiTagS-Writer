@@ -14,6 +14,7 @@ format = "sh -c 'PATH=$(find \"$HOME/.ufbt/toolchain\" -path \"*/bin\" -type d |
 cdb = "ufbt cdb"
 test = "sh -c 'cc -std=c11 -Itests/stubs -I. tests/test_em4100_decode.c em4100_encode.c -o /tmp/hitags_test_em4100_decode && /tmp/hitags_test_em4100_decode && cc -std=c11 -Itests/stubs -I. tests/test_dump_model.c -o /tmp/hitags_test_dump_model && /tmp/hitags_test_dump_model && cc -std=c11 -Itests/stubs -I. tests/test_codec.c hitag_s_codec.c -o /tmp/hitags_test_codec && /tmp/hitags_test_codec && cc -std=c11 -Itests/stubs -I. tests/test_config.c -o /tmp/hitags_test_config && /tmp/hitags_test_config && cc -std=c11 -Itests/stubs -I. tests/test_select_frame.c hitag_s_codec.c -o /tmp/hitags_test_select_frame && /tmp/hitags_test_select_frame && python -m unittest discover -s tests -p \"test_*.py\"'"
 analyze-trace = "python analyze_trace.py"
+pull-traces = "python trace_pull.py"
 sim-manchester = "python sim_manchester.py"
 sim-mc4k = "python sim_mc4k_final.py"
 sim-ui = "python sim_ui_layout.py"

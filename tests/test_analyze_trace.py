@@ -99,6 +99,91 @@ ABORT: UID request failed (result=1)
         self.assertIn("TX frame check: OK", report)
         self.assertIn("tx_us=8512", report)
 
+    def test_report_includes_lf_field_metadata(self):
+        trace = """=== HiTag S Debug Trace ===
+
+=== DEBUG READ SEQUENCE ===
+Field ON: carrier=125000Hz duty=0.5 pull=release powerup_us=3000
+
+--- UID_REQUEST ---
+  TX: UID_REQ_STD (5 bits, val=0x06)
+  TX_FRAME: frame=30 bits=5 tx_us=1280
+  RX: 2 edges mode=AC2K
+  EDGES: L:5 H:25000
+  DECODE: 0 bits
+  RESULT: TIMEOUT (no UID)
+"""
+
+        parsed = analyze_trace.parse_trace(trace)
+        report = analyze_trace.generate_report(parsed)
+
+        self.assertEqual(parsed.field_pull, "release")
+        self.assertIn("LF field: carrier=125000Hz duty=0.5 pull=release powerup_us=3000", report)
+
+    def test_capture_report_includes_current_tx_frame_context(self):
+        trace = """=== HiTag S Debug Trace ===
+
+--- UID_REQUEST ---
+  TX: UID_REQ_STD (5 bits, val=0x06)
+  TX_FRAME: frame=30 bits=5 tx_us=1280
+  RX: 2 edges mode=AC2K
+  EDGES: L:5 H:25000
+  DECODE: 0 bits
+  RESULT: TIMEOUT (no UID)
+"""
+
+        parsed = analyze_trace.parse_trace(trace)
+        report = analyze_trace.generate_report(parsed)
+
+        self.assertIn("tx_frame=30/5b tx_us=1280", report)
+
+    def test_uid_request_frames_are_checked_against_model(self):
+        trace = """=== HiTag S Debug Trace ===
+
+--- UID_REQUEST ---
+  TX: UID_REQ_STD (5 bits, val=0x06)
+  TX_FRAME: frame=30 bits=5 tx_us=1280
+  RX: 2 edges mode=AC2K
+  EDGES: L:5 H:25000
+  DECODE: 0 bits
+  TX: UID_REQ_ADV1 (5 bits, val=0x19)
+  TX_FRAME: frame=C8 bits=5 tx_us=1344
+  RX: 2 edges mode=AC2K
+  EDGES: L:5 H:25000
+  DECODE: 0 bits
+  TX: UID_REQ_ADV2 (5 bits, val=0x18)
+  TX_FRAME: frame=C0 bits=5 tx_us=1280
+  RX: 2 edges mode=AC2K
+  EDGES: L:5 H:25000
+  DECODE: 0 bits
+  RESULT: TIMEOUT (no UID)
+"""
+
+        parsed = analyze_trace.parse_trace(trace)
+        report = analyze_trace.generate_report(parsed)
+
+        self.assertIn("UID TX frame check: OK (30, 5 bits, tx_us=1280)", report)
+        self.assertIn("UID TX frame check: OK (C8, 5 bits, tx_us=1344)", report)
+        self.assertIn("UID TX frame check: OK (C0, 5 bits, tx_us=1280)", report)
+
+    def test_uid_request_frame_mismatch_is_reported(self):
+        trace = """=== HiTag S Debug Trace ===
+
+--- UID_REQUEST ---
+  TX: UID_REQ_STD (5 bits, val=0x06)
+  TX_FRAME: frame=38 bits=5 tx_us=1280
+  RX: 2 edges mode=AC2K
+  EDGES: L:5 H:25000
+  DECODE: 0 bits
+  RESULT: TIMEOUT (no UID)
+"""
+
+        parsed = analyze_trace.parse_trace(trace)
+        report = analyze_trace.generate_report(parsed)
+
+        self.assertIn("UID TX frame check: MISMATCH", report)
+        self.assertIn("expected=30/5b", report)
+
     def test_select_tx_frame_mismatch_is_reported(self):
         trace = """=== HiTag S Debug Trace ===
 
@@ -114,6 +199,47 @@ ABORT: UID request failed (result=1)
         self.assertIn("TX frame check: MISMATCH", report)
         self.assertIn("expected=02 94 08 11 8B 78", report)
         self.assertIn("expected_tx_us=8512", report)
+
+    def test_each_select_capture_frame_is_checked_against_its_own_tx(self):
+        trace = """=== HiTag S Debug Trace ===
+
+--- SELECT ---
+  TX: SELECT UID=52810231 CRC=6F (45 bits, UID0..UID3)
+  TX_FRAME: frame=02 94 08 11 8B 78 bits=45 tx_us=8512
+  RX: 2 edges mode=MC4K
+  EDGES: L:5 H:14995
+  DECODE: 0 bits
+  TX: SELECT UID=31028152 CRC=E9 (45 bits, UID3..UID0)
+  TX_FRAME: frame=01 88 14 0A 97 48 bits=45 tx_us=8448
+  RX: 2 edges mode=MC4K
+  EDGES: L:5 H:14995
+  DECODE: 0 bits
+  RESULT: TIMEOUT (0 bits)
+"""
+
+        parsed = analyze_trace.parse_trace(trace)
+        report = analyze_trace.generate_report(parsed)
+
+        self.assertIn("SELECT TX frame check: OK (02 94 08 11 8B 78, 45 bits, tx_us=8512)", report)
+        self.assertIn("SELECT TX frame check: OK (01 88 14 0A 97 48, 45 bits, tx_us=8448)", report)
+
+    def test_select_capture_frame_mismatch_points_to_specific_tx(self):
+        trace = """=== HiTag S Debug Trace ===
+
+--- SELECT ---
+  TX: SELECT UID=52810231 CRC=6F (45 bits, UID0..UID3)
+  TX_FRAME: frame=02 94 08 11 8B 00 bits=45 tx_us=8512
+  RX: 2 edges mode=MC4K
+  EDGES: L:5 H:14995
+  DECODE: 0 bits
+  RESULT: TIMEOUT (0 bits)
+"""
+
+        parsed = analyze_trace.parse_trace(trace)
+        report = analyze_trace.generate_report(parsed)
+
+        self.assertIn("SELECT TX frame check: MISMATCH", report)
+        self.assertIn("after TX: SELECT UID=52810231", report)
 
     def test_select_timeout_with_valid_frame_is_diagnosed_as_rf_or_response_window(self):
         trace = """=== HiTag S Debug Trace ===
@@ -135,6 +261,59 @@ ABORT: UID request failed (result=1)
 
         self.assertIn("SELECT frame matches model but no MC4K response was decoded", report)
         self.assertIn("RF field/coil coupling or response-window timing", report)
+
+    def test_batch_summary_highlights_trace_evidence_state(self):
+        old_trace = """=== HiTag S Debug Trace ===
+
+--- UID_REQUEST ---
+  TX: UID_REQ_STD (5 bits, val=0x06)
+  RX: 2 edges mode=AC2K
+  EDGES: L:5 H:25000
+  DECODE: 0 bits
+
+--- SELECT ---
+  TX: SELECT UID=52810231 CRC=6F (45 bits, UID0..UID3)
+  RX: 2 edges mode=MC4K
+  EDGES: L:5 H:14995
+  DECODE: 0 bits
+  RESULT: TIMEOUT (0 bits)
+"""
+        new_trace = """=== HiTag S Debug Trace ===
+
+=== DEBUG READ SEQUENCE ===
+Field ON: carrier=125000Hz duty=0.5 pull=release powerup_us=3000
+
+--- UID_REQUEST ---
+  TX: UID_REQ_STD (5 bits, val=0x06)
+  TX_FRAME: frame=30 bits=5 tx_us=1280
+  RX: 2 edges mode=AC2K
+  EDGES: L:5 H:25000
+  DECODE: 0 bits
+
+--- SELECT ---
+  TX: SELECT UID=52810231 CRC=6F (45 bits, UID0..UID3)
+  TX_FRAME: frame=02 94 08 11 8B 78 bits=45 tx_us=8512
+  RX: 2 edges mode=MC4K
+  EDGES: L:5 H:14995
+  DECODE: 0 bits
+  RESULT: TIMEOUT (0 bits)
+"""
+
+        summary = analyze_trace.generate_batch_summary([
+            ("old.htsd", analyze_trace.parse_trace(old_trace)),
+            ("new.htsd", analyze_trace.parse_trace(new_trace)),
+        ])
+
+        self.assertIn("Batch Summary", summary)
+        self.assertIn(
+            "old.htsd | uid=- | accepted=- | field=legacy | uid_tx=legacy | select_tx=legacy",
+            summary,
+        )
+        self.assertIn(
+            "new.htsd | uid=- | accepted=- | field=release | uid_tx=ok | select_tx=ok",
+            summary,
+        )
+        self.assertIn("select_bits=0", summary)
 
     def test_trace_replay_recovers_real_ac2k_uid(self):
         trace_path = Path(__file__).resolve().parents[1] / "trace_device_52810231_pm3timing.htsd"

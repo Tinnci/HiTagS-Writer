@@ -58,6 +58,9 @@ class RxCapture:
     decode_bits: int = 0
     decode_data: bytes = b""
     tx_desc: str = ""
+    tx_frame: bytes = b""
+    tx_frame_bits: int = 0
+    tx_frame_us: int = 0
 
 
 @dataclass
@@ -285,6 +288,13 @@ def build_select_frame(uid: int) -> tuple:
     return bytes(frame), bit_pos, crc
 
 
+def build_uid_req_frame(value: int) -> tuple:
+    """Build a 5-bit UID request command frame."""
+    frame = bytearray(1)
+    bit_pos = pack_bits(frame, 0, value, 5)
+    return bytes(frame), bit_pos
+
+
 def bplm_frame_duration_us(data: bytes, bits: int) -> int:
     """Return theoretical BPLM TX duration using firmware transport timing."""
     duration = 0
@@ -294,11 +304,11 @@ def bplm_frame_duration_us(data: bytes, bits: int) -> int:
     return duration + 352
 
 
-def select_tx_frame_check(txn: Transaction) -> Optional[dict]:
+def select_frame_check(tx_desc: str, tx_frame: bytes, tx_frame_bits: int, tx_frame_us: int) -> Optional[dict]:
     """Compare a SELECT TX_FRAME line against the model-built frame."""
-    if txn.section != "SELECT" or not txn.tx_frame:
+    if not tx_frame:
         return None
-    match = re.search(r"SELECT UID=([0-9A-Fa-f]{8}) CRC=([0-9A-Fa-f]{2})", txn.tx_desc)
+    match = re.search(r"SELECT UID=([0-9A-Fa-f]{8}) CRC=([0-9A-Fa-f]{2})", tx_desc)
     if not match:
         return None
 
@@ -307,17 +317,52 @@ def select_tx_frame_check(txn: Transaction) -> Optional[dict]:
     expected_frame, expected_bits, expected_crc = build_select_frame(uid)
     expected_us = bplm_frame_duration_us(expected_frame, expected_bits)
     return {
-        "ok": txn.tx_frame == expected_frame and txn.tx_frame_bits == expected_bits and
-        (txn.tx_frame_us == 0 or txn.tx_frame_us == expected_us) and
+        "ok": tx_frame == expected_frame and tx_frame_bits == expected_bits and
+        (tx_frame_us == 0 or tx_frame_us == expected_us) and
         logged_crc == expected_crc,
         "expected_frame": expected_frame,
         "expected_bits": expected_bits,
         "expected_crc": expected_crc,
         "expected_us": expected_us,
-        "logged_frame": txn.tx_frame,
-        "logged_bits": txn.tx_frame_bits,
+        "logged_frame": tx_frame,
+        "logged_bits": tx_frame_bits,
         "logged_crc": logged_crc,
-        "logged_us": txn.tx_frame_us,
+        "logged_us": tx_frame_us,
+    }
+
+
+def select_tx_frame_check(txn: Transaction) -> Optional[dict]:
+    """Compare the latest transaction SELECT TX_FRAME against the model-built frame."""
+    if txn.section != "SELECT":
+        return None
+    return select_frame_check(txn.tx_desc, txn.tx_frame, txn.tx_frame_bits, txn.tx_frame_us)
+
+
+def select_capture_frame_check(cap: RxCapture) -> Optional[dict]:
+    """Compare the TX frame associated with one SELECT capture against the model."""
+    return select_frame_check(cap.tx_desc, cap.tx_frame, cap.tx_frame_bits, cap.tx_frame_us)
+
+
+def uid_req_frame_check(cap: RxCapture) -> Optional[dict]:
+    """Compare a UID_REQ TX_FRAME line against the 5-bit command model."""
+    if not cap.tx_frame:
+        return None
+    match = re.search(r"UID_REQ_\w+\s+\(5 bits, val=0x([0-9A-Fa-f]+)\)", cap.tx_desc)
+    if not match:
+        return None
+
+    value = int(match.group(1), 16)
+    expected_frame, expected_bits = build_uid_req_frame(value)
+    expected_us = bplm_frame_duration_us(expected_frame, expected_bits)
+    return {
+        "ok": cap.tx_frame == expected_frame and cap.tx_frame_bits == expected_bits and
+        (cap.tx_frame_us == 0 or cap.tx_frame_us == expected_us),
+        "expected_frame": expected_frame,
+        "expected_bits": expected_bits,
+        "expected_us": expected_us,
+        "logged_frame": cap.tx_frame,
+        "logged_bits": cap.tx_frame_bits,
+        "logged_us": cap.tx_frame_us,
     }
 
 
@@ -335,6 +380,10 @@ class TraceFile:
     config: Optional[int] = None
     proto_mode: str = "STD"
     raw_text: str = ""
+    field_carrier_hz: int = 0
+    field_duty: str = ""
+    field_pull: str = ""
+    field_powerup_us: int = 0
 
 
 def parse_trace(text: str) -> TraceFile:
@@ -352,6 +401,18 @@ def parse_trace(text: str) -> TraceFile:
         # Header
         if stripped.startswith("=== HiTag S Debug Trace"):
             tf.header = stripped
+            continue
+
+        # LF field metadata, emitted by newer Debug Read traces.
+        if stripped.startswith("Field ON:"):
+            field_match = re.search(
+                r'carrier=(\d+)Hz\s+duty=([0-9.]+)\s+pull=(\w+)\s+powerup_us=(\d+)',
+                stripped)
+            if field_match:
+                tf.field_carrier_hz = int(field_match.group(1))
+                tf.field_duty = field_match.group(2)
+                tf.field_pull = field_match.group(3)
+                tf.field_powerup_us = int(field_match.group(4))
             continue
 
         # Section headers like "--- UID_REQUEST ---"
@@ -387,6 +448,9 @@ def parse_trace(text: str) -> TraceFile:
             current_capture = RxCapture()
             if current_txn:
                 current_capture.tx_desc = current_txn.tx_desc
+                current_capture.tx_frame = current_txn.tx_frame
+                current_capture.tx_frame_bits = current_txn.tx_frame_bits
+                current_capture.tx_frame_us = current_txn.tx_frame_us
             m2 = re.search(r'mode=(\w+)', stripped)
             if m2:
                 current_capture.mode = m2.group(1)
@@ -620,6 +684,10 @@ def generate_report(tf: TraceFile, show_edges: bool = False, redecode: bool = Fa
     if tf.config is not None:
         lines.append(f"Config:  0x{tf.config:08X}")
         lines.append(format_config(tf.config))
+    if tf.field_carrier_hz:
+        lines.append(
+            f"LF field: carrier={tf.field_carrier_hz}Hz duty={tf.field_duty} "
+            f"pull={tf.field_pull} powerup_us={tf.field_powerup_us}")
     lines.append("")
 
     # Transaction analysis
@@ -653,10 +721,54 @@ def generate_report(tf: TraceFile, show_edges: bool = False, redecode: bool = Fa
         for j, cap in enumerate(txn.captures):
             edge_count = len(cap.edges)
             tx_context = f" after {cap.tx_desc}" if cap.tx_desc else ""
-            lines.append(
+            capture_line = (
                 f"  Capture {j+1}{tx_context}: {edge_count} edges, mode={cap.mode}, "
                 f"decoded={cap.decode_bits} bits"
             )
+            if cap.tx_frame:
+                tx_frame = " ".join(f"{b:02X}" for b in cap.tx_frame)
+                capture_line += (
+                    f", tx_frame={tx_frame}/{cap.tx_frame_bits}b tx_us="
+                    f"{cap.tx_frame_us or 'n/a'}"
+                )
+            lines.append(capture_line)
+
+            if txn.section == "SELECT":
+                cap_frame_check = select_capture_frame_check(cap)
+                if cap_frame_check:
+                    expected = " ".join(f"{b:02X}" for b in cap_frame_check["expected_frame"])
+                    logged = " ".join(f"{b:02X}" for b in cap_frame_check["logged_frame"])
+                    if cap_frame_check["ok"]:
+                        tx_us = cap_frame_check["logged_us"] or cap_frame_check["expected_us"]
+                        lines.append(
+                            "    SELECT TX frame check: OK "
+                            f"({logged}, {cap_frame_check['logged_bits']} bits, tx_us={tx_us})")
+                    else:
+                        lines.append(
+                            "    SELECT TX frame check: MISMATCH "
+                            f"logged={logged}/{cap_frame_check['logged_bits']}b "
+                            f"tx_us={cap_frame_check['logged_us'] or 'n/a'} "
+                            f"expected={expected}/{cap_frame_check['expected_bits']}b "
+                            f"expected_tx_us={cap_frame_check['expected_us']}"
+                        )
+            elif txn.section == "UID_REQUEST":
+                cap_frame_check = uid_req_frame_check(cap)
+                if cap_frame_check:
+                    expected = " ".join(f"{b:02X}" for b in cap_frame_check["expected_frame"])
+                    logged = " ".join(f"{b:02X}" for b in cap_frame_check["logged_frame"])
+                    if cap_frame_check["ok"]:
+                        tx_us = cap_frame_check["logged_us"] or cap_frame_check["expected_us"]
+                        lines.append(
+                            "    UID TX frame check: OK "
+                            f"({logged}, {cap_frame_check['logged_bits']} bits, tx_us={tx_us})")
+                    else:
+                        lines.append(
+                            "    UID TX frame check: MISMATCH "
+                            f"logged={logged}/{cap_frame_check['logged_bits']}b "
+                            f"tx_us={cap_frame_check['logged_us'] or 'n/a'} "
+                            f"expected={expected}/{cap_frame_check['expected_bits']}b "
+                            f"expected_tx_us={cap_frame_check['expected_us']}"
+                        )
 
             if show_edges and cap.edges:
                 edge_strs = [f"{e.level}:{e.duration}" for e in cap.edges[:30]]
@@ -764,6 +876,59 @@ def generate_report(tf: TraceFile, show_edges: bool = False, redecode: bool = Fa
     return '\n'.join(lines)
 
 
+def _frame_status(checks: list[Optional[dict]], saw_tx: bool) -> str:
+    present = [check for check in checks if check is not None]
+    if any(check and not check["ok"] for check in present):
+        return "mismatch"
+    if present:
+        return "ok"
+    return "legacy" if saw_tx else "-"
+
+
+def generate_batch_summary(named_traces: list[tuple[str, TraceFile]]) -> str:
+    """Generate a compact matrix for multiple trace files."""
+    lines = [
+        "============================================================",
+        "  Batch Summary",
+        "============================================================",
+    ]
+
+    for name, tf in named_traces:
+        uid = f"{tf.uid:08X}" if tf.uid is not None else "-"
+        accepted = ",".join(sorted(accepted_uid_candidates(tf))) or "-"
+        field = tf.field_pull or "legacy"
+
+        uid_caps = [
+            cap for txn in tf.transactions if txn.section == "UID_REQUEST" for cap in txn.captures
+        ]
+        select_caps = [
+            cap for txn in tf.transactions if txn.section == "SELECT" for cap in txn.captures
+        ]
+
+        uid_tx = _frame_status([uid_req_frame_check(cap) for cap in uid_caps], bool(uid_caps))
+        select_tx = _frame_status(
+            [select_capture_frame_check(cap) for cap in select_caps], bool(select_caps))
+        select_bits = max((cap.decode_bits for cap in select_caps), default=0)
+
+        if select_tx == "mismatch":
+            hint = "fix-frame"
+        elif select_tx == "ok" and select_bits == 0:
+            hint = "rf-or-window"
+        elif select_bits > 0 and select_bits < 32:
+            hint = "decode-threshold"
+        elif select_bits >= 32:
+            hint = "select-response"
+        else:
+            hint = "needs-new-trace"
+
+        lines.append(
+            f"{name} | uid={uid} | accepted={accepted} | field={field} | "
+            f"uid_tx={uid_tx} | select_tx={select_tx} | select_bits={select_bits} | {hint}"
+        )
+
+    return "\n".join(lines)
+
+
 # ============================================================
 # Entry point
 # ============================================================
@@ -782,10 +947,12 @@ def main():
 
     try:
         reports = []
+        named_traces = []
         for trace_file in args.trace_file:
             with open(trace_file, 'r') as f:
                 text = f.read()
             tf = parse_trace(text)
+            named_traces.append((trace_file, tf))
             report = generate_report(tf, show_edges=args.edges, redecode=args.redecode)
             if len(args.trace_file) > 1:
                 report = f"TRACE FILE: {trace_file}\n" + report
@@ -794,7 +961,10 @@ def main():
         print(f"Error: File not found: {exc.filename}", file=sys.stderr)
         sys.exit(1)
 
-    output = "\n\n".join(reports)
+    if len(named_traces) > 1:
+        output = generate_batch_summary(named_traces) + "\n\n" + "\n\n".join(reports)
+    else:
+        output = "\n\n".join(reports)
 
     if args.output:
         with open(args.output, 'w') as f:

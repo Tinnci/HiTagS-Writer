@@ -42,9 +42,9 @@ void hitag_s_send_frame(const uint8_t* data, size_t bits) {
 
 void hitag_s_field_on(void) {
     furi_hal_rfid_tim_read_start(125000, 0.5f);
-    furi_hal_rfid_pin_pull_pulldown();
+    furi_hal_rfid_pin_pull_release();
     furi_delay_us(HITAG_S_T_WAIT_POWERUP_US);
-    FURI_LOG_D(TAG, "Field ON, carrier 125kHz");
+    FURI_LOG_D(TAG, "Field ON, carrier 125kHz, antenna pull released");
 }
 
 void hitag_s_field_off(void) {

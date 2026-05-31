@@ -1,0 +1,713 @@
+TRACE FILE: pulled_traces/flipper_Trace_00000000_1796b.htsd
+============================================================
+  HiTag S Debug Trace Analysis Report
+============================================================
+
+
+----------------------------------------
+RF Transaction Log
+----------------------------------------
+
+[1] UID_REQUEST
+  TX: UID_REQ_STD (5 bits, val=0x06)
+  TX: UID_REQ_ADV1 (5 bits, val=0x19)
+  TX: UID_REQ_ADV2 (5 bits, val=0x18)
+  Capture 1 after TX: UID_REQ_STD (5 bits, val=0x06): 2 edges, mode=AC2K, decoded=0 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Re-decode AC2K: 0 bits = N/A
+  Capture 2 after TX: UID_REQ_STD (5 bits, val=0x06): 2 edges, mode=AC2K, decoded=0 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Re-decode AC2K: 0 bits = N/A
+  Capture 3 after TX: UID_REQ_STD (5 bits, val=0x06): 2 edges, mode=AC2K, decoded=0 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Re-decode AC2K: 0 bits = N/A
+  Capture 4 after TX: UID_REQ_STD (5 bits, val=0x06): 2 edges, mode=AC2K, decoded=0 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Re-decode AC2K: 0 bits = N/A
+  Capture 5 after TX: UID_REQ_STD (5 bits, val=0x06): 2 edges, mode=AC2K, decoded=0 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Re-decode AC2K: 0 bits = N/A
+  Capture 6 after TX: UID_REQ_STD (5 bits, val=0x06): 2 edges, mode=AC2K, decoded=0 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Re-decode AC2K: 0 bits = N/A
+  Capture 7 after TX: UID_REQ_ADV1 (5 bits, val=0x19): 2 edges, mode=AC2K, decoded=0 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Re-decode AC2K: 0 bits = N/A
+  Capture 8 after TX: UID_REQ_ADV1 (5 bits, val=0x19): 2 edges, mode=AC2K, decoded=0 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Re-decode AC2K: 0 bits = N/A
+  Capture 9 after TX: UID_REQ_ADV1 (5 bits, val=0x19): 2 edges, mode=AC2K, decoded=0 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Re-decode AC2K: 0 bits = N/A
+  Capture 10 after TX: UID_REQ_ADV1 (5 bits, val=0x19): 2 edges, mode=AC2K, decoded=0 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Re-decode AC2K: 0 bits = N/A
+  Capture 11 after TX: UID_REQ_ADV1 (5 bits, val=0x19): 2 edges, mode=AC2K, decoded=0 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Re-decode AC2K: 0 bits = N/A
+  Capture 12 after TX: UID_REQ_ADV1 (5 bits, val=0x19): 2 edges, mode=AC2K, decoded=0 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Re-decode AC2K: 0 bits = N/A
+  Capture 13 after TX: UID_REQ_ADV2 (5 bits, val=0x18): 2 edges, mode=AC2K, decoded=0 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Re-decode AC2K: 0 bits = N/A
+  Capture 14 after TX: UID_REQ_ADV2 (5 bits, val=0x18): 2 edges, mode=AC2K, decoded=0 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Re-decode AC2K: 0 bits = N/A
+  Capture 15 after TX: UID_REQ_ADV2 (5 bits, val=0x18): 2 edges, mode=AC2K, decoded=0 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Re-decode AC2K: 0 bits = N/A
+  Capture 16 after TX: UID_REQ_ADV2 (5 bits, val=0x18): 2 edges, mode=AC2K, decoded=0 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Re-decode AC2K: 0 bits = N/A
+  Capture 17 after TX: UID_REQ_ADV2 (5 bits, val=0x18): 2 edges, mode=AC2K, decoded=0 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Re-decode AC2K: 0 bits = N/A
+  Capture 18 after TX: UID_REQ_ADV2 (5 bits, val=0x18): 2 edges, mode=AC2K, decoded=0 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Re-decode AC2K: 0 bits = N/A
+  RESULT: TIMEOUT (no UID)
+  ABORT: UID request failed (result=1)
+
+----------------------------------------
+Authentication Analysis
+----------------------------------------
+No authentication attempts found in trace.
+
+============================================================
+  End of analysis
+============================================================
+
+TRACE FILE: pulled_traces/flipper_Trace_12810231_2437b.htsd
+============================================================
+  HiTag S Debug Trace Analysis Report
+============================================================
+
+Tag UID: 0x12810231
+
+----------------------------------------
+RF Transaction Log
+----------------------------------------
+
+[1] UID_REQUEST
+  TX: UID_REQ_STD (5 bits, val=0x06)
+  Capture 1 after TX: UID_REQ_STD (5 bits, val=0x06): 44 edges, mode=AC2K, decoded=17 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Gap at period[1]: 6971µs (very long)
+  Re-decode AC2K: 17 bits = 011880
+    ⚠ AC2K noisy candidate: 1 glitches, 2 long AC gaps
+  Capture 2 after TX: UID_REQ_STD (5 bits, val=0x06): 76 edges, mode=AC2K, decoded=30 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Gap at period[1]: 2829µs (very long)
+  Re-decode AC2K: 30 bits = 0A0408C4
+  Capture 3 after TX: UID_REQ_STD (5 bits, val=0x06): 82 edges, mode=AC2K, decoded=32 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 14µs
+  Gap at period[3]: 1550µs (very long)
+  Re-decode AC2K: 32 bits = 12810231
+    ⚠ AC2K noisy candidate: 1 glitches, 3 long AC gaps
+  RESULT: OK, UID=12810231 (mode=STD, AC2K)
+
+[2] SELECT
+  TX: SELECT UID=12810231 CRC=FB (45 bits, UID0..UID3)
+  TX: SELECT UID=31028112 CRC=FA (45 bits, UID3..UID0)
+  TX: SELECT UID=4881408C CRC=6E (45 bits, bit-reversed bytes)
+  TX: SELECT UID=8C408148 CRC=80 (45 bits, bit+byte reversed)
+  Capture 1 after TX: SELECT UID=12810231 CRC=FB (45 bits, UID0..UID3): 10 edges, mode=MC4K, decoded=1 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs (too short)
+  Gap at period[1]: 12556µs (>512µs)
+  Gap at period[2]: 803µs (>512µs)
+  Gap at period[3]: 1133µs (>512µs)
+  Glitch at period[4]: 37µs (too short)
+  Re-decode MC4K: 1 bits = 80
+  Capture 2 after TX: SELECT UID=31028112 CRC=FA (45 bits, UID3..UID0): 2 edges, mode=MC4K, decoded=0 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs (too short)
+  Re-decode MC4K: 0 bits = N/A
+  Capture 3 after TX: SELECT UID=4881408C CRC=6E (45 bits, bit-reversed bytes): 2 edges, mode=MC4K, decoded=0 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs (too short)
+  Re-decode MC4K: 0 bits = N/A
+  Capture 4 after TX: SELECT UID=8C408148 CRC=80 (45 bits, bit+byte reversed): 2 edges, mode=MC4K, decoded=0 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs (too short)
+  Re-decode MC4K: 0 bits = N/A
+  RESULT: TIMEOUT (0 bits)
+  ABORT: SELECT failed (result=1)
+
+----------------------------------------
+Authentication Analysis
+----------------------------------------
+No authentication attempts found in trace.
+
+----------------------------------------
+SELECT Diagnosis
+----------------------------------------
+SELECT produced only 1 decoded MC4K bits; inspect edge timing and Manchester threshold/SOF alignment.
+
+============================================================
+  End of analysis
+============================================================
+
+TRACE FILE: pulled_traces/flipper_Trace_48000000_5044b.htsd
+============================================================
+  HiTag S Debug Trace Analysis Report
+============================================================
+
+Tag UID: 0x48000000
+
+----------------------------------------
+RF Transaction Log
+----------------------------------------
+
+[1] UID_REQUEST
+  TX: UID_REQ_STD (5 bits, val=0x06)
+  Capture 1 after TX: UID_REQ_STD (5 bits, val=0x06): 42 edges, mode=AC2K, decoded=10 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Gap at period[1]: 11520µs (very long)
+  Gap at period[15]: 6341µs (very long)
+  Glitch at period[16]: 18µs
+  Glitch at period[18]: 34µs
+  Gap at period[20]: 2319µs (very long)
+  Re-decode AC2K: 14 bits = 0628
+    ⚠ AC2K noisy candidate: 3 glitches, 3 long AC gaps
+  Capture 2 after TX: UID_REQ_STD (5 bits, val=0x06): 80 edges, mode=MC2K, decoded=32 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs (too short)
+  Gap at period[1]: 1411µs (>1024µs)
+  Capture 3 after TX: UID_REQ_STD (5 bits, val=0x06): 84 edges, mode=AC2K, decoded=20 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Gap at period[1]: 1787µs (very long)
+  Re-decode AC2K: 32 bits = 52810231
+  Capture 4 after TX: UID_REQ_STD (5 bits, val=0x06): 78 edges, mode=MC2K, decoded=32 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs (too short)
+  Gap at period[1]: 2821µs (>1024µs)
+  Capture 5 after TX: UID_REQ_STD (5 bits, val=0x06): 80 edges, mode=AC2K, decoded=19 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Gap at period[1]: 2305µs (very long)
+  Re-decode AC2K: 31 bits = 25020462
+  Capture 6 after TX: UID_REQ_STD (5 bits, val=0x06): 108 edges, mode=MC2K, decoded=32 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 13µs (too short)
+  Glitch at period[3]: 20µs (too short)
+  Glitch at period[4]: 23µs (too short)
+  Glitch at period[6]: 22µs (too short)
+  Glitch at period[8]: 18µs (too short)
+  Glitch at period[9]: 22µs (too short)
+  Glitch at period[11]: 19µs (too short)
+  Glitch at period[12]: 33µs (too short)
+  Capture 7 after TX: UID_REQ_STD (5 bits, val=0x06): 78 edges, mode=AC2K, decoded=19 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Gap at period[1]: 2823µs (very long)
+  Re-decode AC2K: 30 bits = 4A0408C4
+  Capture 8 after TX: UID_REQ_STD (5 bits, val=0x06): 106 edges, mode=MC2K, decoded=32 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs (too short)
+  RESULT: OK, UID=48000000 (mode=STD)
+
+[2] SELECT
+  TX: SELECT UID=48000000 CRC=71 (45 bits, UID0..UID3)
+  TX: SELECT UID=00000048 CRC=82 (45 bits, UID3..UID0)
+  Capture 1 after TX: SELECT UID=48000000 CRC=71 (45 bits, UID0..UID3): 6 edges, mode=MC4K, decoded=2 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs (too short)
+  Gap at period[1]: 8904µs (>512µs)
+  Gap at period[2]: 3758µs (>512µs)
+  Re-decode MC4K: 2 bits = 40
+  Capture 2 after TX: SELECT UID=00000048 CRC=82 (45 bits, UID3..UID0): 2 edges, mode=MC4K, decoded=0 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs (too short)
+  Re-decode MC4K: 0 bits = N/A
+  RESULT: TIMEOUT (0 bits)
+  ABORT: SELECT failed (result=1)
+
+----------------------------------------
+Authentication Analysis
+----------------------------------------
+No authentication attempts found in trace.
+
+----------------------------------------
+SELECT Diagnosis
+----------------------------------------
+SELECT produced only 2 decoded MC4K bits; inspect edge timing and Manchester threshold/SOF alignment.
+
+============================================================
+  End of analysis
+============================================================
+
+TRACE FILE: pulled_traces/flipper_Trace_52810231_1414b.htsd
+============================================================
+  HiTag S Debug Trace Analysis Report
+============================================================
+
+Tag UID: 0x52810231
+
+----------------------------------------
+RF Transaction Log
+----------------------------------------
+
+[1] UID_REQUEST
+  TX: UID_REQ_STD (5 bits, val=0x06)
+  Capture 1 after TX: UID_REQ_STD (5 bits, val=0x06): 34 edges, mode=AC2K, decoded=12 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Gap at period[1]: 10055µs (very long)
+  Re-decode AC2K: 12 bits = 2310
+  Capture 2 after TX: UID_REQ_STD (5 bits, val=0x06): 82 edges, mode=AC2K, decoded=32 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Gap at period[1]: 1524µs (very long)
+  Re-decode AC2K: 32 bits = 52810231
+  RESULT: OK, UID=52810231 (mode=STD, AC2K)
+
+[2] SELECT
+  TX: SELECT UID=52810231 CRC=6F (45 bits, UID0..UID3)
+  TX: SELECT UID=31028152 CRC=E9 (45 bits, UID3..UID0)
+  Capture 1 after TX: SELECT UID=52810231 CRC=6F (45 bits, UID0..UID3): 2 edges, mode=MC4K, decoded=0 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs (too short)
+  Re-decode MC4K: 0 bits = N/A
+  Capture 2 after TX: SELECT UID=31028152 CRC=E9 (45 bits, UID3..UID0): 2 edges, mode=MC4K, decoded=0 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs (too short)
+  Re-decode MC4K: 0 bits = N/A
+  RESULT: TIMEOUT (0 bits)
+  ABORT: SELECT failed (result=1)
+
+----------------------------------------
+Authentication Analysis
+----------------------------------------
+No authentication attempts found in trace.
+
+----------------------------------------
+SELECT Diagnosis
+----------------------------------------
+SELECT timed out with no decoded MC4K response; trace lacks TX_FRAME, so capture a new trace before separating frame bugs from RF/timing issues.
+
+============================================================
+  End of analysis
+============================================================
+
+TRACE FILE: pulled_traces/flipper_Trace_74A0408C_7551b.htsd
+============================================================
+  HiTag S Debug Trace Analysis Report
+============================================================
+
+Tag UID: 0x74A0408C
+
+----------------------------------------
+RF Transaction Log
+----------------------------------------
+
+[1] UID_REQUEST
+  TX: UID_REQ_STD (5 bits, val=0x06)
+  TX: UID_REQ_ADV2 (5 bits, val=0x18)
+  Capture 1 after TX: UID_REQ_STD (5 bits, val=0x06): 34 edges, mode=AC2K, decoded=12 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Gap at period[1]: 11015µs (very long)
+  Re-decode AC2K: 9 bits = 1880
+  Capture 2 after TX: UID_REQ_STD (5 bits, val=0x06): 80 edges, mode=AC2K, decoded=31 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Gap at period[1]: 1729µs (very long)
+  Re-decode AC2K: 28 bits = 28102310
+  Capture 3 after TX: UID_REQ_STD (5 bits, val=0x06): 80 edges, mode=AC2K, decoded=31 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Gap at period[1]: 2299µs (very long)
+  Re-decode AC2K: 28 bits = 28102310
+  Capture 4 after TX: UID_REQ_STD (5 bits, val=0x06): 80 edges, mode=AC2K, decoded=31 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Gap at period[1]: 2306µs (very long)
+  Re-decode AC2K: 28 bits = 28102310
+  Capture 5 after TX: UID_REQ_STD (5 bits, val=0x06): 80 edges, mode=AC2K, decoded=31 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Gap at period[1]: 2304µs (very long)
+  Re-decode AC2K: 28 bits = 28102310
+  Capture 6 after TX: UID_REQ_STD (5 bits, val=0x06): 80 edges, mode=AC2K, decoded=31 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Gap at period[1]: 2304µs (very long)
+  Re-decode AC2K: 28 bits = 28102310
+  Capture 7 after TX: UID_REQ_ADV2 (5 bits, val=0x18): 88 edges, mode=AC2K, decoded=30 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Gap at period[1]: 2304µs (very long)
+  Re-decode AC2K: 30 bits = 4A0408C4
+  Capture 8 after TX: UID_REQ_ADV2 (5 bits, val=0x18): 88 edges, mode=AC2K, decoded=30 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Gap at period[1]: 2298µs (very long)
+  Re-decode AC2K: 30 bits = 4A0408C4
+  Capture 9 after TX: UID_REQ_ADV2 (5 bits, val=0x18): 88 edges, mode=AC2K, decoded=30 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Gap at period[1]: 2303µs (very long)
+  Re-decode AC2K: 30 bits = 4A0408C4
+  Capture 10 after TX: UID_REQ_ADV2 (5 bits, val=0x18): 88 edges, mode=AC2K, decoded=30 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Gap at period[1]: 2298µs (very long)
+  Re-decode AC2K: 30 bits = 4A0408C4
+  Capture 11 after TX: UID_REQ_ADV2 (5 bits, val=0x18): 88 edges, mode=AC2K, decoded=30 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Gap at period[1]: 2303µs (very long)
+  Re-decode AC2K: 30 bits = 4A0408C4
+  Capture 12 after TX: UID_REQ_ADV2 (5 bits, val=0x18): 110 edges, mode=AC2K, decoded=32 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Glitch at period[3]: 37µs
+  Glitch at period[4]: 65µs
+  Glitch at period[5]: 62µs
+  Glitch at period[9]: 37µs
+  Re-decode AC2K: 34 bits = 74A0408C40
+    ⚠ AC2K noisy candidate: 5 glitches, 1 long AC gaps
+  RESULT: OK, UID=74A0408C (mode=ADV2, AC2K)
+
+[2] SELECT
+  TX: SELECT UID=74A0408C CRC=6C (45 bits, UID0..UID3)
+  TX: SELECT UID=8C40A074 CRC=6F (45 bits, UID3..UID0)
+  Capture 1 after TX: SELECT UID=74A0408C CRC=6C (45 bits, UID0..UID3): 2 edges, mode=MC4K, decoded=0 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs (too short)
+  Re-decode MC4K: 0 bits = N/A
+  Capture 2 after TX: SELECT UID=8C40A074 CRC=6F (45 bits, UID3..UID0): 8 edges, mode=MC4K, decoded=0 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs (too short)
+  Gap at period[1]: 13501µs (>512µs)
+  Gap at period[2]: 856µs (>512µs)
+  Glitch at period[3]: 32µs (too short)
+  Re-decode MC4K: 0 bits = N/A
+  RESULT: TIMEOUT (0 bits)
+  ABORT: SELECT failed (result=1)
+
+----------------------------------------
+Authentication Analysis
+----------------------------------------
+No authentication attempts found in trace.
+
+----------------------------------------
+SELECT Diagnosis
+----------------------------------------
+SELECT timed out with no decoded MC4K response; trace lacks TX_FRAME, so capture a new trace before separating frame bugs from RF/timing issues.
+
+============================================================
+  End of analysis
+============================================================
+
+TRACE FILE: pulled_traces/flipper_Trace_D2810231_6538b.htsd
+============================================================
+  HiTag S Debug Trace Analysis Report
+============================================================
+
+Tag UID: 0xD2810231
+
+----------------------------------------
+RF Transaction Log
+----------------------------------------
+
+[1] UID_REQUEST
+  TX: UID_REQ_STD (5 bits, val=0x06)
+  TX: UID_REQ_ADV2 (5 bits, val=0x18)
+  Capture 1 after TX: UID_REQ_STD (5 bits, val=0x06): 34 edges, mode=AC2K, decoded=12 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Gap at period[1]: 10044µs (very long)
+  Re-decode AC2K: 9 bits = 1880
+  Capture 2 after TX: UID_REQ_STD (5 bits, val=0x06): 78 edges, mode=AC2K, decoded=30 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Gap at period[1]: 2301µs (very long)
+  Re-decode AC2K: 27 bits = 50204620
+  Capture 3 after TX: UID_REQ_STD (5 bits, val=0x06): 106 edges, mode=AC2K, decoded=32 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 13µs
+  Glitch at period[2]: 29µs
+  Glitch at period[7]: 27µs
+  Glitch at period[8]: 29µs
+  Glitch at period[11]: 26µs
+  Re-decode AC2K: 33 bits = A940811880
+    ⚠ AC2K noisy candidate: 5 glitches, 0 long AC gaps
+  Capture 4 after TX: UID_REQ_STD (5 bits, val=0x06): 78 edges, mode=AC2K, decoded=30 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Gap at period[1]: 2835µs (very long)
+  Re-decode AC2K: 27 bits = 50204620
+  Capture 5 after TX: UID_REQ_STD (5 bits, val=0x06): 80 edges, mode=AC2K, decoded=31 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Gap at period[1]: 2321µs (very long)
+  Re-decode AC2K: 28 bits = 28102310
+  Capture 6 after TX: UID_REQ_STD (5 bits, val=0x06): 80 edges, mode=AC2K, decoded=31 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Gap at period[1]: 2321µs (very long)
+  Re-decode AC2K: 28 bits = 28102310
+  Capture 7 after TX: UID_REQ_ADV2 (5 bits, val=0x18): 142 edges, mode=AC2K, decoded=32 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Glitch at period[1]: 51µs
+  Glitch at period[3]: 25µs
+  Glitch at period[4]: 23µs
+  Glitch at period[5]: 72µs
+  Glitch at period[6]: 24µs
+  Glitch at period[7]: 28µs
+  Glitch at period[8]: 24µs
+  Glitch at period[10]: 25µs
+  Glitch at period[11]: 29µs
+  Glitch at period[12]: 28µs
+  Glitch at period[13]: 68µs
+  Glitch at period[14]: 22µs
+  Glitch at period[15]: 61µs
+  Glitch at period[16]: 29µs
+  Glitch at period[17]: 43µs
+  Glitch at period[18]: 23µs
+  Glitch at period[20]: 24µs
+  Glitch at period[21]: 30µs
+  Glitch at period[22]: 31µs
+  Glitch at period[23]: 33µs
+  Glitch at period[24]: 30µs
+  Glitch at period[26]: 25µs
+  Re-decode AC2K: 33 bits = E940811880
+    ⚠ AC2K noisy candidate: 23 glitches, 1 long AC gaps
+  Capture 8 after TX: UID_REQ_ADV2 (5 bits, val=0x18): 86 edges, mode=AC2K, decoded=30 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Gap at period[1]: 2577µs (very long)
+  Re-decode AC2K: 30 bits = 4A0408C4
+  Capture 9 after TX: UID_REQ_ADV2 (5 bits, val=0x18): 96 edges, mode=AC2K, decoded=32 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 12µs
+  Gap at period[1]: 1247µs (very long)
+  Glitch at period[2]: 27µs
+  Re-decode AC2K: 32 bits = D2810231
+    ⚠ AC2K noisy candidate: 2 glitches, 1 long AC gaps
+  RESULT: OK, UID=D2810231 (mode=ADV2, AC2K)
+
+[2] SELECT
+  TX: SELECT UID=D2810231 CRC=5A (45 bits, UID0..UID3)
+  TX: SELECT UID=310281D2 CRC=CF (45 bits, UID3..UID0)
+  TX: SELECT UID=4B81408C CRC=D4 (45 bits, bit-reversed bytes)
+  TX: SELECT UID=8C40814B CRC=A7 (45 bits, bit+byte reversed)
+  Capture 1 after TX: SELECT UID=D2810231 CRC=5A (45 bits, UID0..UID3): 2 edges, mode=MC4K, decoded=0 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs (too short)
+  Re-decode MC4K: 0 bits = N/A
+  Capture 2 after TX: SELECT UID=310281D2 CRC=CF (45 bits, UID3..UID0): 26 edges, mode=MC4K, decoded=0 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs (too short)
+  Gap at period[1]: 12651µs (>512µs)
+  Gap at period[2]: 876µs (>512µs)
+  Glitch at period[3]: 36µs (too short)
+  Glitch at period[4]: 27µs (too short)
+  Glitch at period[5]: 34µs (too short)
+  Gap at period[8]: 525µs (>512µs)
+  Glitch at period[9]: 30µs (too short)
+  Glitch at period[10]: 34µs (too short)
+  Glitch at period[11]: 34µs (too short)
+  Re-decode MC4K: 0 bits = N/A
+  Capture 3 after TX: SELECT UID=4B81408C CRC=D4 (45 bits, bit-reversed bytes): 2 edges, mode=MC4K, decoded=0 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs (too short)
+  Re-decode MC4K: 0 bits = N/A
+  Capture 4 after TX: SELECT UID=8C40814B CRC=A7 (45 bits, bit+byte reversed): 2 edges, mode=MC4K, decoded=0 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs (too short)
+  Re-decode MC4K: 0 bits = N/A
+  RESULT: TIMEOUT (0 bits)
+  ABORT: SELECT failed (result=1)
+
+----------------------------------------
+Authentication Analysis
+----------------------------------------
+No authentication attempts found in trace.
+
+----------------------------------------
+SELECT Diagnosis
+----------------------------------------
+SELECT timed out with no decoded MC4K response; trace lacks TX_FRAME, so capture a new trace before separating frame bugs from RF/timing issues.
+
+============================================================
+  End of analysis
+============================================================
+
+TRACE FILE: pulled_traces/flipper_Trace_D4A0408C_3615b.htsd
+============================================================
+  HiTag S Debug Trace Analysis Report
+============================================================
+
+Tag UID: 0xD4A0408C
+
+----------------------------------------
+RF Transaction Log
+----------------------------------------
+
+[1] UID_REQUEST
+  TX: UID_REQ_STD (5 bits, val=0x06)
+  Capture 1 after TX: UID_REQ_STD (5 bits, val=0x06): 34 edges, mode=AC2K, decoded=12 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Gap at period[1]: 10038µs (very long)
+  Re-decode AC2K: 12 bits = 2310
+  Capture 2 after TX: UID_REQ_STD (5 bits, val=0x06): 80 edges, mode=AC2K, decoded=31 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs
+  Gap at period[1]: 1776µs (very long)
+  Re-decode AC2K: 31 bits = 25020462
+  Capture 3 after TX: UID_REQ_STD (5 bits, val=0x06): 132 edges, mode=AC2K, decoded=32 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 14µs
+  Glitch at period[1]: 32µs
+  Glitch at period[3]: 41µs
+  Glitch at period[4]: 56µs
+  Glitch at period[5]: 30µs
+  Glitch at period[6]: 28µs
+  Glitch at period[7]: 20µs
+  Glitch at period[10]: 30µs
+  Glitch at period[11]: 26µs
+  Glitch at period[12]: 31µs
+  Glitch at period[13]: 25µs
+  Glitch at period[14]: 33µs
+  Glitch at period[16]: 23µs
+  Glitch at period[17]: 39µs
+  Glitch at period[18]: 64µs
+  Glitch at period[19]: 27µs
+  Glitch at period[20]: 29µs
+  Glitch at period[21]: 30µs
+  Glitch at period[22]: 29µs
+  Glitch at period[23]: 23µs
+  Glitch at period[24]: 43µs
+  Re-decode AC2K: 34 bits = D4A0408C40
+    ⚠ AC2K noisy candidate: 21 glitches, 0 long AC gaps
+  RESULT: OK, UID=D4A0408C (mode=STD, AC2K)
+
+[2] SELECT
+  TX: SELECT UID=D4A0408C CRC=13 (45 bits, UID0..UID3)
+  TX: SELECT UID=8C40A0D4 CRC=CE (45 bits, UID3..UID0)
+  TX: SELECT UID=2B050231 CRC=53 (45 bits, bit-reversed bytes)
+  TX: SELECT UID=3102052B CRC=A1 (45 bits, bit+byte reversed)
+  Capture 1 after TX: SELECT UID=D4A0408C CRC=13 (45 bits, UID0..UID3): 44 edges, mode=MC4K, decoded=5 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs (too short)
+  Gap at period[1]: 12307µs (>512µs)
+  Gap at period[3]: 576µs (>512µs)
+  Glitch at period[4]: 31µs (too short)
+  Glitch at period[5]: 32µs (too short)
+  Glitch at period[6]: 38µs (too short)
+  Glitch at period[8]: 34µs (too short)
+  Glitch at period[10]: 26µs (too short)
+  Glitch at period[11]: 35µs (too short)
+  Glitch at period[12]: 31µs (too short)
+  Glitch at period[13]: 26µs (too short)
+  Glitch at period[14]: 27µs (too short)
+  Glitch at period[16]: 32µs (too short)
+  Glitch at period[17]: 31µs (too short)
+  Glitch at period[18]: 34µs (too short)
+  Glitch at period[21]: 38µs (too short)
+  Re-decode MC4K: 5 bits = F8
+  Capture 2 after TX: SELECT UID=8C40A0D4 CRC=CE (45 bits, UID3..UID0): 2 edges, mode=MC4K, decoded=0 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs (too short)
+  Re-decode MC4K: 0 bits = N/A
+  Capture 3 after TX: SELECT UID=2B050231 CRC=53 (45 bits, bit-reversed bytes): 92 edges, mode=MC4K, decoded=5 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs (too short)
+  Gap at period[1]: 9877µs (>512µs)
+  Gap at period[2]: 701µs (>512µs)
+  Glitch at period[3]: 31µs (too short)
+  Glitch at period[4]: 29µs (too short)
+  Glitch at period[5]: 32µs (too short)
+  Glitch at period[6]: 36µs (too short)
+  Glitch at period[8]: 19µs (too short)
+  Glitch at period[10]: 27µs (too short)
+  Glitch at period[11]: 31µs (too short)
+  Glitch at period[12]: 28µs (too short)
+  Glitch at period[13]: 31µs (too short)
+  Glitch at period[14]: 28µs (too short)
+  Glitch at period[15]: 31µs (too short)
+  Glitch at period[16]: 32µs (too short)
+  Glitch at period[17]: 28µs (too short)
+  Glitch at period[18]: 26µs (too short)
+  Glitch at period[20]: 33µs (too short)
+  Glitch at period[21]: 33µs (too short)
+  Glitch at period[22]: 27µs (too short)
+  Glitch at period[23]: 34µs (too short)
+  Gap at period[25]: 1875µs (>512µs)
+  Glitch at period[26]: 33µs (too short)
+  Glitch at period[27]: 30µs (too short)
+  Glitch at period[28]: 33µs (too short)
+  Glitch at period[29]: 31µs (too short)
+  Glitch at period[30]: 29µs (too short)
+  Glitch at period[31]: 30µs (too short)
+  Glitch at period[32]: 27µs (too short)
+  Glitch at period[33]: 30µs (too short)
+  Glitch at period[34]: 32µs (too short)
+  Glitch at period[35]: 31µs (too short)
+  Glitch at period[36]: 30µs (too short)
+  Glitch at period[37]: 32µs (too short)
+  Glitch at period[43]: 30µs (too short)
+  Glitch at period[44]: 28µs (too short)
+  Re-decode MC4K: 5 bits = F8
+  Capture 4 after TX: SELECT UID=3102052B CRC=A1 (45 bits, bit+byte reversed): 64 edges, mode=MC4K, decoded=5 bits
+  ⚠ Timing anomalies:
+  Glitch at period[0]: 5µs (too short)
+  Gap at period[1]: 12309µs (>512µs)
+  Glitch at period[3]: 36µs (too short)
+  Glitch at period[5]: 38µs (too short)
+  Glitch at period[6]: 35µs (too short)
+  Glitch at period[8]: 37µs (too short)
+  Glitch at period[10]: 38µs (too short)
+  Glitch at period[14]: 32µs (too short)
+  Glitch at period[15]: 36µs (too short)
+  Glitch at period[20]: 27µs (too short)
+  Glitch at period[21]: 25µs (too short)
+  Glitch at period[22]: 31µs (too short)
+  Glitch at period[23]: 29µs (too short)
+  Re-decode MC4K: 7 bits = FE
+    ⚠ MISMATCH: original=F8
+  RESULT: TIMEOUT (5 bits)
+  ABORT: SELECT failed (result=1)
+
+----------------------------------------
+Authentication Analysis
+----------------------------------------
+No authentication attempts found in trace.
+
+----------------------------------------
+SELECT Diagnosis
+----------------------------------------
+SELECT produced only 5 decoded MC4K bits; inspect edge timing and Manchester threshold/SOF alignment.
+
+============================================================
+  End of analysis
+============================================================

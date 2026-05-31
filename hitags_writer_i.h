@@ -27,6 +27,7 @@
 #include <flipper_format/flipper_format.h>
 
 #include <lfrfid/lfrfid_dict_file.h>
+#include <lfrfid/lfrfid_worker.h>
 #include <lfrfid/protocols/lfrfid_protocols.h>
 
 #include "scenes/hitags_writer_scene.h"
@@ -72,6 +73,13 @@ typedef enum {
     HitagSEventDebugOk,
     HitagSEventDebugPartial,
     HitagSEventDebugFailed,
+    HitagSEventLfReadSenseStart,
+    HitagSEventLfReadSenseEnd,
+    HitagSEventLfReadSenseCardStart,
+    HitagSEventLfReadSenseCardEnd,
+    HitagSEventLfReadStartASK,
+    HitagSEventLfReadStartPSK,
+    HitagSEventLfReadDone,
 } HitagSCustomEvent;
 
 /* --- Views --- */
@@ -162,6 +170,9 @@ struct HitagSApp {
     /* LFRFID for file loading */
     ProtocolDict* dict;
     ProtocolId protocol_id;
+    ProtocolId protocol_id_next;
+    LFRFIDWorker* lfworker;
+    LFRFIDWorkerReadType read_type;
 };
 
 /* --- Utility Functions --- */

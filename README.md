@@ -34,6 +34,7 @@ python analyze_trace.py Trace_AABBCCDD.htsd             # Basic report
 python analyze_trace.py Trace_AABBCCDD.htsd --edges      # Show raw edge data
 python analyze_trace.py Trace_AABBCCDD.htsd --redecode   # Re-decode Manchester from edges
 python analyze_trace.py Trace_AABBCCDD.htsd -o report.txt # Save report to file
+pixi run pull-traces --port /dev/cu.usbmodemflip_Drie1 --report pulled_traces/report.txt
 ```
 
 Even when a read fails, the trace is still captured and can be saved — the partial

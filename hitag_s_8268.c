@@ -340,7 +340,9 @@ HitagSResult hitag_s_debug_read_sequence(
     uint32_t config = 0;
     trace_append("\n=== DEBUG READ SEQUENCE ===\n");
     hitag_s_field_on();
-    trace_append("Field ON (125kHz)\n");
+    trace_append(
+        "Field ON: carrier=125000Hz duty=0.5 pull=release powerup_us=%d\n",
+        HITAG_S_T_WAIT_POWERUP_US);
 
     HitagSResult result = hitag_s_uid_request(&uid);
     if(result != HitagSResultOk) {
