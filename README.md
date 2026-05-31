@@ -160,9 +160,6 @@ Byte 3 (PWDH0): Password high byte (reads back as 0xFF in plain mode)
 # Install dependencies
 pixi install
 
-# Install ufbt
-pixi run install-ufbt
-
 # Build
 pixi run build
 
@@ -178,6 +175,10 @@ pixi run launch
 | `pixi run launch` | Build and deploy to Flipper Zero |
 | `pixi run clean` | Clean build artifacts |
 | `pixi run lint` | Code style check |
+| `pixi run test` | Run local protocol regression tests |
+| `pixi run format` | Format C code |
+| `pixi run cdb` | Regenerate `compile_commands.json` for IDE integration |
+| `pixi run analyze-trace <file.htsd>` | Analyze a captured debug trace |
 
 ## Project Structure
 

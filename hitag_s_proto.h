@@ -150,10 +150,11 @@ static inline bool hitag_s_page_locked(const HitagSConfig* cfg, uint8_t page) {
 #define HITAG_S_T_LOW_CYCLES      8 /* Gap low duration in T0 cycles (spec: 4..10, PM3: 8) */
 #define HITAG_S_T_0_CYCLES        20 /* Bit '0' total duration in T0 cycles (spec: 18..22, PM3: 20) */
 #define HITAG_S_T_1_CYCLES        28 /* Bit '1' total duration in T0 cycles (spec: 26..32, PM3: 28) */
-#define HITAG_S_T_STOP_CYCLES     40 /* Stop/EOF duration in T0 cycles (spec: >36) */
-#define HITAG_S_T_WAIT_POWERUP_US 2500 /* Power-up wait time (312.5 × T0) */
+#define HITAG_S_T_STOP_CYCLES     36 /* Stop/EOF duration in T0 cycles (spec: >=36, PM3: 36) */
+#define HITAG_S_T_WAIT_POWERUP_US 3000 /* Power-up + START_AUTH window margin */
 #define HITAG_S_T_WAIT_SC_US      1600 /* Standard command wait (200 × T0, spec: 90..5000) */
 #define HITAG_S_T_WAIT_RESP_US    200 /* Wait for tag response */
+#define HITAG_S_T_RX_IDLE_US      1200 /* Stop receive after response edges go idle */
 #define HITAG_S_T_PROG_US         6000 /* Program time after write (750 × T0, spec: 716..726) */
 
 /* --- MC4K Manchester decoding (post-SELECT data exchange) ---
@@ -162,7 +163,7 @@ static inline bool hitag_s_page_locked(const HitagSConfig* cfg, uint8_t page) {
 #define HITAG_S_MC4K_GLITCH_US    50 /* Min valid pulse duration */
 
 /* --- AC2K Anti-collision decoding (UID response) ---
- * Half = 256µs = 32 × T0, based on 16 × T0 quarter periods */
+ * Flipper TIM2 rising-to-rising periods are observed around 256/384/512µs. */
 #define HITAG_S_AC2K_THRESH_23_US 320 /* Between 2-half (256µs) and 3-half (384µs) */
 #define HITAG_S_AC2K_THRESH_34_US 448 /* Between 3-half (384µs) and 4-half (512µs) */
 #define HITAG_S_AC2K_GLITCH_US    80 /* Min valid period */

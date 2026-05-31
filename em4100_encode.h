@@ -55,6 +55,17 @@ void em4100_prepare_hitag_data(const uint8_t* id_bytes, Em4100HitagData* out_dat
 uint32_t em4100_config_set_ttf(uint32_t current_config);
 
 /**
+ * @brief Build Proxmark-compatible 8268 config for EM4100 TTF emulation
+ *
+ * Produces CON0/CON1 bytes matching Proxmark3's `lf em 410x clone --hts`
+ * profile for RF/64: CON0=0xDA, CON1=0xA4. CON2 and PWDH0 are cleared.
+ *
+ * @param current_config  Current config page value, accepted for API symmetry
+ * @return 8268 config page value for EM4100 TTF
+ */
+uint32_t em4100_config_make_8268_ttf(uint32_t current_config);
+
+/**
  * @brief Convert 5 EM4100 ID bytes to display string "XX:XX:XX:XX:XX"
  * @param id_bytes  5 bytes of EM4100 ID
  * @param out_str   Output buffer (at least 15 bytes)

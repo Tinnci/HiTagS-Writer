@@ -21,8 +21,8 @@ static int32_t hitags_writer_worker_thread(void* context) {
          *   1. Auth (UID_REQ → SELECT → 82xx password)
          *   2. Read current config page (page 1)
          *   3. Modify config for EM4100 TTF (TTFC=Manchester, TTFDR=fc/64, TTFM=pages 4-5)
-         *   4. Write modified config to page 1
-         *   5. Write EM4100 data to pages 4 and 5
+         *   4. Write EM4100 data to pages 4 and 5
+         *   5. Write modified config to page 1
          */
         Em4100HitagData hitag_data;
         em4100_prepare_hitag_data(app->em4100_id, &hitag_data);
@@ -116,18 +116,24 @@ static int32_t hitags_writer_worker_thread(void* context) {
                 app->password, app->read_pages, page_addrs, 3, &app->tag_uid);
 
             if(app->last_result == HitagSResultOk) {
-                em4100_decode_hitag_data(app->read_pages[1], app->read_pages[2], app->read_id);
-                FURI_LOG_I(
-                    TAG,
-                    "Worker: Read EM4100 %02X:%02X:%02X:%02X:%02X (attempt %d)",
-                    app->read_id[0],
-                    app->read_id[1],
-                    app->read_id[2],
-                    app->read_id[3],
-                    app->read_id[4],
-                    attempts);
-                view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventReadOk);
-                break;
+                if(!em4100_decode_hitag_data(
+                       app->read_pages[1], app->read_pages[2], app->read_id)) {
+                    FURI_LOG_W(
+                        TAG, "Worker: Pages 4/5 are not valid EM4100 data (attempt %d)", attempts);
+                    app->last_result = HitagSResultError;
+                } else {
+                    FURI_LOG_I(
+                        TAG,
+                        "Worker: Read EM4100 %02X:%02X:%02X:%02X:%02X (attempt %d)",
+                        app->read_id[0],
+                        app->read_id[1],
+                        app->read_id[2],
+                        app->read_id[3],
+                        app->read_id[4],
+                        attempts);
+                    view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventReadOk);
+                    break;
+                }
             }
 
             if(attempts >= max_attempts) {
@@ -330,6 +336,17 @@ static int32_t hitags_writer_worker_thread(void* context) {
             }
             FURI_LOG_I(TAG, "Worker: Debug read OK — %d pages", app->dump_read_count);
             view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventDebugOk);
+        } else if(app->debug_trace) {
+            app->dump_read_count = 0;
+            for(int p = 0; p < HITAG_S_MAX_PAGES; p++) {
+                if(app->dump_valid[p]) app->dump_read_count++;
+            }
+            FURI_LOG_W(
+                TAG,
+                "Worker: Debug read partial trace ready (result=%d, pages=%d)",
+                (int)app->last_result,
+                app->dump_read_count);
+            view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventDebugPartial);
         } else {
             FURI_LOG_W(TAG, "Worker: Debug read failed (result=%d)", (int)app->last_result);
             view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventDebugFailed);

@@ -15,8 +15,26 @@
 typedef enum {
     DebugReadStateScanning,
     DebugReadStateSuccess,
+    DebugReadStatePartial,
     DebugReadStateFailed,
 } DebugReadState;
+
+static const char* hitags_writer_scene_debug_read_status_text(HitagSApp* app) {
+    if(app->tag_uid == 0) {
+        return "No UID yet\nTrace ready";
+    }
+
+    switch(app->last_result) {
+    case HitagSResultTimeout:
+        return "Stopped on\nRF timeout";
+    case HitagSResultNack:
+        return "Stopped on\nNACK/Auth";
+    case HitagSResultCrcError:
+        return "Stopped on\nCRC check";
+    default:
+        return "Stopped on\nprotocol step";
+    }
+}
 
 static void hitags_writer_scene_debug_read_save_trace(HitagSApp* app) {
     if(!app->debug_trace) {
@@ -119,38 +137,59 @@ bool hitags_writer_scene_debug_read_on_event(void* context, SceneManagerEvent ev
             view_dispatcher_switch_to_view(app->view_dispatcher, HitagSViewWidget);
             consumed = true;
 
-        } else if(event.event == HitagSEventDebugFailed) {
+        } else if(event.event == HitagSEventDebugPartial) {
             hitags_writer_worker_stop(app);
             notification_message(app->notifications, &sequence_blink_stop);
             notification_message(app->notifications, &sequence_error);
 
-            /* Even on failure, trace has useful data — offer to save */
             Widget* widget = app->widget;
             widget_reset(widget);
 
             widget_add_icon_element(widget, 83, 22, &I_WarningDolphinFlip_45x42);
             widget_add_string_element(
-                widget, 40, 5, AlignCenter, AlignTop, FontPrimary, "Read Failed!");
-
-            const char* errmsg;
-            switch(app->last_result) {
-            case HitagSResultTimeout:
-                errmsg = "No tag found.\nPlace tag on\nFlipper back.";
-                break;
-            case HitagSResultNack:
-                errmsg = "Auth rejected.\nTrace saved\nfor analysis.";
-                break;
-            default:
-                errmsg = "Read error.\nTrace saved.";
-                break;
-            }
+                widget, 40, 5, AlignCenter, AlignTop, FontPrimary, "Partial Trace");
 
             widget_add_string_multiline_element(
-                widget, 40, 22, AlignCenter, AlignTop, FontSecondary, errmsg);
+                widget,
+                40,
+                22,
+                AlignCenter,
+                AlignTop,
+                FontSecondary,
+                hitags_writer_scene_debug_read_status_text(app));
             widget_add_button_element(
                 widget, GuiButtonTypeLeft, "Back", hitags_writer_widget_callback, app);
             widget_add_button_element(
                 widget, GuiButtonTypeCenter, "Save", hitags_writer_widget_callback, app);
+            widget_add_button_element(
+                widget, GuiButtonTypeRight, "Retry", hitags_writer_widget_callback, app);
+
+            scene_manager_set_scene_state(
+                app->scene_manager, HitagSSceneDebugRead, DebugReadStatePartial);
+            view_dispatcher_switch_to_view(app->view_dispatcher, HitagSViewWidget);
+            consumed = true;
+
+        } else if(event.event == HitagSEventDebugFailed) {
+            hitags_writer_worker_stop(app);
+            notification_message(app->notifications, &sequence_blink_stop);
+            notification_message(app->notifications, &sequence_error);
+
+            Widget* widget = app->widget;
+            widget_reset(widget);
+
+            widget_add_icon_element(widget, 83, 22, &I_WarningDolphinFlip_45x42);
+            widget_add_string_element(
+                widget, 40, 5, AlignCenter, AlignTop, FontPrimary, "No Trace");
+            widget_add_string_multiline_element(
+                widget,
+                40,
+                22,
+                AlignCenter,
+                AlignTop,
+                FontSecondary,
+                "Capture failed.\nTry again.");
+            widget_add_button_element(
+                widget, GuiButtonTypeLeft, "Back", hitags_writer_widget_callback, app);
             widget_add_button_element(
                 widget, GuiButtonTypeRight, "Retry", hitags_writer_widget_callback, app);
 
@@ -168,7 +207,9 @@ bool hitags_writer_scene_debug_read_on_event(void* context, SceneManagerEvent ev
             hitags_writer_scene_debug_read_save_trace(app);
             consumed = true;
 
-        } else if(event.event == GuiButtonTypeRight && state == DebugReadStateFailed) {
+        } else if(
+            event.event == GuiButtonTypeRight &&
+            (state == DebugReadStateFailed || state == DebugReadStatePartial)) {
             /* Retry */
             widget_reset(app->widget);
             Popup* popup = app->popup;

@@ -129,11 +129,14 @@ static void hitag_s_send_bit(bool value) {
 
 /** Send a stop/EOF marker */
 static void hitag_s_send_stop(void) {
+    uint32_t t_low = HITAG_S_T_LOW_CYCLES * HITAG_S_T0_US;
     uint32_t t_stop = HITAG_S_T_STOP_CYCLES * HITAG_S_T0_US;
 
+    /* EOF is a normal short gap followed by a long unmodulated carrier period. */
     furi_hal_rfid_tim_read_pause();
-    furi_delay_us(t_stop);
+    furi_delay_us(t_low);
     furi_hal_rfid_tim_read_continue();
+    furi_delay_us(t_stop);
 }
 
 void hitag_s_send_frame(const uint8_t* data, size_t bits) {
@@ -196,9 +199,9 @@ static void hitag_s_capture_callback(bool level, uint32_t duration, void* contex
 /**
  * @brief Decode AC2K anti-collision response (used for UID)
  *
- * AC2K encodes bits as tag load modulation patterns. The rising-to-rising
- * intervals (level=false periods from TIM2) classify as:
- *   TWO_HALF   (~256µs) : within a '1' bit (alternating L/U pattern)
+ * AC2K encodes bits as tag load modulation patterns. The TIM2 rising-to-rising
+ * periods (level=false captures) classify as:
+ *   TWO_HALF   (~256µs) : within a '1' bit
  *   THREE_HALF (~384µs) : transition between '0' and '1'
  *   FOUR_HALF  (~512µs) : consecutive '0' bits
  *
@@ -309,6 +312,21 @@ static size_t hitag_s_decode_ac2k(
     }
 
     return data_bits;
+}
+
+static bool hitag_s_capture_has_excessive_glitches(const HitagSCapture* cap) {
+    size_t glitches = 0;
+    size_t long_periods = 0;
+    for(size_t i = 0; i < cap->edge_count; i++) {
+        if(cap->levels[i]) continue;
+
+        if(cap->durations[i] < HITAG_S_AC2K_GLITCH_US) {
+            glitches++;
+        } else if(cap->durations[i] > 600) {
+            long_periods++;
+        }
+    }
+    return glitches > 1 || long_periods > 1;
 }
 
 /**
@@ -512,8 +530,26 @@ static size_t hitag_s_send_receive(
     hs_capture.overflow = false;
     furi_hal_rfid_tim_read_capture_start(hitag_s_capture_callback, (void*)&hs_capture);
 
-    /* Wait for tag response edges */
-    furi_delay_us(rx_timeout_us);
+    /* Wait for tag response edges, then return as soon as the response goes idle.
+     * HiTag S expects the next reader command in a short inter-frame window; waiting
+     * the whole RX timeout after a complete UID response makes SELECT arrive late. */
+    uint32_t elapsed_us = 0;
+    uint32_t idle_us = 0;
+    size_t last_edge_count = 0;
+    while(elapsed_us < rx_timeout_us) {
+        const uint32_t step_us = 100;
+        furi_delay_us(step_us);
+        elapsed_us += step_us;
+
+        size_t edge_count = hs_capture.edge_count;
+        if(edge_count != last_edge_count) {
+            last_edge_count = edge_count;
+            idle_us = 0;
+        } else if(edge_count > 1) {
+            idle_us += step_us;
+            if(idle_us >= HITAG_S_T_RX_IDLE_US) break;
+        }
+    }
 
     /* Stop capture */
     furi_hal_rfid_tim_read_capture_stop();
@@ -638,16 +674,36 @@ typedef struct {
     const char* name;
     size_t uid_sof; /* SOF bits in AC2K UID response */
     size_t data_sof; /* SOF bits in MC4K data exchange */
+    bool response_crc; /* Advanced modes append CRC to data responses */
 } HitagSProtoMode;
 
 static const HitagSProtoMode proto_modes[] = {
-    {0x06, "STD", 1, 1}, /* UID_REQ_STD (00110): SOF=1 everywhere */
-    {0x18, "ADV2", 3, 6}, /* UID_REQ_ADV2 (11000): SOF=3 for UID, 6 for data */
+    {0x06, "STD", 0, 1, false}, /* UID_REQ_STD (00110): UID response has no extra SOF bit */
+    {0x19, "ADV1", 3, 6, true}, /* UID_REQ_ADV1 (11001): advanced response CRC */
+    {0x18, "ADV2", 3, 6, true}, /* UID_REQ_ADV2 (11000): advanced response CRC */
 };
 static size_t active_mode_idx = 0;
 
 static inline size_t hitag_s_data_sof(void) {
     return proto_modes[active_mode_idx].data_sof;
+}
+
+static inline uint32_t hitag_s_reverse_uid_bytes(uint32_t uid) {
+    return ((uid & 0x000000FFUL) << 24) | ((uid & 0x0000FF00UL) << 8) |
+           ((uid & 0x00FF0000UL) >> 8) | ((uid & 0xFF000000UL) >> 24);
+}
+
+static uint8_t hitag_s_reverse_bits8(uint8_t v) {
+    v = ((v & 0xF0U) >> 4) | ((v & 0x0FU) << 4);
+    v = ((v & 0xCCU) >> 2) | ((v & 0x33U) << 2);
+    return ((v & 0xAAU) >> 1) | ((v & 0x55U) << 1);
+}
+
+static uint32_t hitag_s_reverse_uid_byte_bits(uint32_t uid) {
+    return ((uint32_t)hitag_s_reverse_bits8((uid >> 24) & 0xFFU) << 24) |
+           ((uint32_t)hitag_s_reverse_bits8((uid >> 16) & 0xFFU) << 16) |
+           ((uint32_t)hitag_s_reverse_bits8((uid >> 8) & 0xFFU) << 8) |
+           (uint32_t)hitag_s_reverse_bits8(uid & 0xFFU);
 }
 
 /* Receive timeouts */
@@ -657,8 +713,8 @@ static inline size_t hitag_s_data_sof(void) {
 
 HitagSResult hitag_s_uid_request(uint32_t* uid) {
     trace_append("\n--- UID_REQUEST ---\n");
-    /* Try STD mode first (simplest framing), then ADV2 (which we know works) */
-    for(size_t c = 0; c < 2; c++) {
+    /* Try Proxmark's 8268 write mode first, then fall back to other observed modes. */
+    for(size_t c = 0; c < COUNT_OF(proto_modes); c++) {
         uint8_t cmd[1] = {0};
         size_t bit_pos = 0;
         pack_bits(cmd, &bit_pos, proto_modes[c].cmd_5bit, 5);
@@ -673,58 +729,48 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
             proto_modes[c].name,
             proto_modes[c].cmd_5bit);
 
-        uint32_t prev_uid = 0;
-        size_t stable_count = 0;
         bool had_decode = false;
 
         for(size_t attempt = 0; attempt < 6; attempt++) {
             uint8_t rx[4] = {0};
             trace_append("  attempt %d/%s:\n", (int)(attempt + 1), proto_modes[c].name);
 
-            /* UID response is AC2K per Hitag S anti-collision; use MC2K as fallback
-             * for clone variants that may answer with Manchester-like timing. */
+            /* UID response is AC2K per Hitag S anti-collision. MC2K-looking captures on
+             * Flipper can be stable noise, so do not use them as UID truth. */
             size_t rx_bits = hitag_s_send_receive(
                 cmd, 5, rx, 32, HITAG_S_RX_TIMEOUT_UID, HitagSRxAC2K, proto_modes[c].uid_sof);
 
-            if(rx_bits < 32) {
-                rx_bits = hitag_s_send_receive(
-                    cmd, 5, rx, 32, HITAG_S_RX_TIMEOUT_UID, HitagSRxMC2K, proto_modes[c].uid_sof);
+            if(hitag_s_capture_has_excessive_glitches(&hs_capture)) {
+                had_decode = true;
+                FURI_LOG_W(
+                    TAG,
+                    "%s UID try %d: rejected noisy AC2K capture",
+                    proto_modes[c].name,
+                    (int)(attempt + 1));
+                trace_append("  %s: rejected noisy AC2K capture\n", proto_modes[c].name);
+                furi_delay_us(HITAG_S_T_WAIT_SC_US);
+                continue;
             }
 
-            if(rx_bits >= 32) {
+            if(rx_bits == 32) {
                 uint32_t current_uid = ((uint32_t)rx[0] << 24) | ((uint32_t)rx[1] << 16) |
                                        ((uint32_t)rx[2] << 8) | (uint32_t)rx[3];
                 had_decode = true;
 
-                if(stable_count == 0 || current_uid == prev_uid) {
-                    stable_count++;
-                } else {
-                    stable_count = 1;
-                }
-                prev_uid = current_uid;
-
-                FURI_LOG_D(
+                *uid = current_uid;
+                active_mode_idx = c;
+                FURI_LOG_I(
                     TAG,
-                    "%s UID try %d: %08lX (stable=%d)",
-                    proto_modes[c].name,
-                    (int)(attempt + 1),
-                    (unsigned long)current_uid,
-                    (int)stable_count);
-
-                if(stable_count >= 2) {
-                    *uid = current_uid;
-                    active_mode_idx = c;
-                    FURI_LOG_I(
-                        TAG,
-                        "UID: %08lX (via %s mode, stable)",
-                        (unsigned long)*uid,
-                        proto_modes[c].name);
-                    trace_append(
-                        "  RESULT: OK, UID=%08lX (mode=%s)\n",
-                        (unsigned long)*uid,
-                        proto_modes[c].name);
-                    return HitagSResultOk;
-                }
+                    "UID: %08lX (via %s mode, AC2K)",
+                    (unsigned long)*uid,
+                    proto_modes[c].name);
+                trace_append(
+                    "  RESULT: OK, UID=%08lX (mode=%s, AC2K)\n",
+                    (unsigned long)*uid,
+                    proto_modes[c].name);
+                return HitagSResultOk;
+            } else if(rx_bits > 0) {
+                had_decode = true;
             }
 
             furi_delay_us(HITAG_S_T_WAIT_SC_US);
@@ -744,8 +790,7 @@ HitagSResult hitag_s_uid_request(uint32_t* uid) {
     return HitagSResultTimeout;
 }
 
-HitagSResult hitag_s_select(uint32_t uid, uint32_t* config) {
-    trace_append("\n--- SELECT ---\n");
+static HitagSResult hitag_s_select_frame(uint32_t uid, uint32_t* config, const char* uid_order) {
     /* SELECT = 00000 (5 bits) + UID (32 bits) + CRC8 (8 bits) = 45 bits */
     uint8_t cmd[6] = {0}; /* 48 bits capacity */
     size_t bit_pos = 0;
@@ -758,8 +803,10 @@ HitagSResult hitag_s_select(uint32_t uid, uint32_t* config) {
     uint8_t crc = hitag_s_crc8(cmd, 37);
     pack_bits(cmd, &bit_pos, crc, 8);
 
-    FURI_LOG_D(TAG, "TX: SELECT UID=%08lX CRC=%02X (45 bits)", (unsigned long)uid, crc);
-    trace_append("  TX: SELECT UID=%08lX CRC=%02X (45 bits)\n", (unsigned long)uid, crc);
+    FURI_LOG_D(
+        TAG, "TX: SELECT UID=%08lX CRC=%02X (45 bits, %s)", (unsigned long)uid, crc, uid_order);
+    trace_append(
+        "  TX: SELECT UID=%08lX CRC=%02X (45 bits, %s)\n", (unsigned long)uid, crc, uid_order);
 
     furi_delay_us(HITAG_S_T_WAIT_SC_US);
 
@@ -775,7 +822,7 @@ HitagSResult hitag_s_select(uint32_t uid, uint32_t* config) {
     }
 
     /* In ADV mode, response includes 8-bit CRC — verify it */
-    if(active_mode_idx == 1 && rx_bits >= 40) {
+    if(proto_modes[active_mode_idx].response_crc && rx_bits >= 40) {
         uint8_t rx_crc = rx[4];
         uint8_t calc_crc = hitag_s_crc8(rx, 32);
         if(rx_crc != calc_crc) {
@@ -792,6 +839,42 @@ HitagSResult hitag_s_select(uint32_t uid, uint32_t* config) {
     FURI_LOG_I(TAG, "Config page: %08lX", (unsigned long)*config);
     trace_append("  RESULT: OK, Config=%08lX\n", (unsigned long)*config);
     return HitagSResultOk;
+}
+
+HitagSResult hitag_s_select(uint32_t uid, uint32_t* config) {
+    trace_append("\n--- SELECT ---\n");
+
+    const struct {
+        uint32_t uid;
+        const char* label;
+    } variants[] = {
+        {uid, "UID0..UID3"},
+        {hitag_s_reverse_uid_bytes(uid), "UID3..UID0"},
+        {hitag_s_reverse_uid_byte_bits(uid), "bit-reversed bytes"},
+        {hitag_s_reverse_uid_bytes(hitag_s_reverse_uid_byte_bits(uid)), "bit+byte reversed"},
+    };
+
+    HitagSResult last_result = HitagSResultTimeout;
+    for(size_t i = 0; i < COUNT_OF(variants); i++) {
+        bool duplicate = false;
+        for(size_t j = 0; j < i; j++) {
+            if(variants[i].uid == variants[j].uid) {
+                duplicate = true;
+                break;
+            }
+        }
+        if(duplicate) continue;
+
+        if(i > 0) {
+            trace_append("  SELECT retry with %s\n", variants[i].label);
+        }
+        last_result = hitag_s_select_frame(variants[i].uid, config, variants[i].label);
+        if(last_result == HitagSResultOk) {
+            return last_result;
+        }
+    }
+
+    return last_result;
 }
 
 HitagSResult hitag_s_8268_authenticate(uint32_t password) {
@@ -1112,8 +1195,8 @@ HitagSResult hitag_s_8268_write_em4100_sequence(
         return HitagSResultError;
     }
 
-    /* Step 5: Modify config for EM4100 TTF (read-modify-write) */
-    uint32_t new_config = em4100_config_set_ttf(current_config);
+    /* Step 5: Configure 8268 for EM4100 TTF using the Proxmark-compatible profile. */
+    uint32_t new_config = em4100_config_make_8268_ttf(current_config);
     if(config_out) *config_out = new_config;
 
     /* Step 6: Write EM4100 data to pages 4 and 5 FIRST (before config change) */

@@ -80,6 +80,9 @@ bool hitags_writer_scene_read_tag_on_event(void* context, SceneManagerEvent even
             case HitagSResultNack:
                 errmsg = "Auth rejected.\nWrong password\nor not 8268?";
                 break;
+            case HitagSResultError:
+                errmsg = "Pages read,\nnot EM4100\nTTF data.";
+                break;
             default:
                 errmsg = "Read error.\nTry again.";
                 break;

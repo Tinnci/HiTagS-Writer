@@ -7,6 +7,7 @@
 #include <furi.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #define TAG "EM4100"
 
@@ -129,6 +130,17 @@ uint32_t em4100_config_set_ttf(uint32_t current_config) {
     return new_config;
 }
 
+uint32_t em4100_config_make_8268_ttf(uint32_t current_config) {
+    UNUSED(current_config);
+
+    /* Proxmark3 `lf em 410x clone --hts` RF/64 profile:
+     *   CON0 = 0xDA: MEMT=2 plus 82xx RES1/RES2/RES4/RES5 compatibility bits
+     *   CON1 = 0xA4: auth=1, Manchester, TTFDR=2 kBit/s, TTFM=pages 4+5
+     *   CON2/PWDH0 = 0
+     */
+    return 0xDAA40000UL;
+}
+
 bool em4100_decode_hitag_data(uint32_t data_hi, uint32_t data_lo, uint8_t* id_bytes) {
     /* Reconstruct the 64-bit EM4100 frame from pages 4 and 5 */
     uint64_t frame = ((uint64_t)data_hi << 32) | (uint64_t)data_lo;
@@ -144,18 +156,40 @@ bool em4100_decode_hitag_data(uint32_t data_hi, uint32_t data_lo, uint8_t* id_by
         return false;
     }
 
+    if((frame & 1ULL) != 0) {
+        FURI_LOG_W(TAG, "EM4100 decode: invalid stop bit");
+        memset(id_bytes, 0, 5);
+        return false;
+    }
+
     /* Extract 40 data bits: skip header, extract 4 data bits per row, skip parity */
     uint64_t data_40 = 0;
     for(int row = EM41XX_LINES - 1; row >= 0; row--) {
         /* Each row is 5 bits (4 data + 1 parity), rows stored MSB-row first after header
          * Bit position: 55 - (EM41XX_LINES - 1 - row) * 5 - 1 ... for 4 data bits */
         int row_start = 55 - (EM41XX_LINES - 1 - row) * 5 - 1; /* first data bit of row */
+        int parity_pos = row_start - EM41XX_COLUMNS;
         uint8_t nibble = 0;
         for(int b = 0; b < EM41XX_COLUMNS; b++) {
             nibble <<= 1;
             nibble |= (frame >> (row_start - b)) & 1;
         }
+        bool parity_bit = (frame >> parity_pos) & 1;
+        if(parity_bit != get_parity(nibble)) {
+            FURI_LOG_W(TAG, "EM4100 decode: row %d parity error", row);
+            memset(id_bytes, 0, 5);
+            return false;
+        }
         data_40 |= ((uint64_t)nibble << (row * 4));
+    }
+
+    for(int col = EM41XX_COLUMNS - 1; col >= 0; col--) {
+        bool parity_bit = (frame >> (col + 1)) & 1;
+        if(parity_bit != get_column_parity_bit(col, data_40)) {
+            FURI_LOG_W(TAG, "EM4100 decode: column %d parity error", col);
+            memset(id_bytes, 0, 5);
+            return false;
+        }
     }
 
     /* Convert 40-bit value to 5 bytes */

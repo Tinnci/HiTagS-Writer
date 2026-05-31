@@ -1,0 +1,96 @@
+=== HiTag S Debug Trace ===
+
+=== DEBUG READ SEQUENCE ===
+Field ON (125kHz)
+
+--- UID_REQUEST ---
+  TX: UID_REQ_STD (5 bits, val=0x06)
+  attempt 1/STD:
+  RX: 2 edges mode=AC2K
+  EDGES: L:5 H:25984
+  DECODE: 0 bits
+  RX: 2 edges mode=MC2K
+  EDGES: L:5 H:25980
+  DECODE: 0 bits
+  attempt 2/STD:
+  RX: 2 edges mode=AC2K
+  EDGES: L:5 H:24995
+  DECODE: 0 bits
+  RX: 2 edges mode=MC2K
+  EDGES: L:5 H:24995
+  DECODE: 0 bits
+  attempt 3/STD:
+  RX: 2 edges mode=AC2K
+  EDGES: L:5 H:24995
+  DECODE: 0 bits
+  RX: 2 edges mode=MC2K
+  EDGES: L:5 H:24995
+  DECODE: 0 bits
+  attempt 4/STD:
+  RX: 2 edges mode=AC2K
+  EDGES: L:5 H:24995
+  DECODE: 0 bits
+  RX: 2 edges mode=MC2K
+  EDGES: L:5 H:24995
+  DECODE: 0 bits
+  attempt 5/STD:
+  RX: 2 edges mode=AC2K
+  EDGES: L:5 H:24995
+  DECODE: 0 bits
+  RX: 2 edges mode=MC2K
+  EDGES: L:5 H:24995
+  DECODE: 0 bits
+  attempt 6/STD:
+  RX: 2 edges mode=AC2K
+  EDGES: L:5 H:24995
+  DECODE: 0 bits
+  RX: 2 edges mode=MC2K
+  EDGES: L:5 H:24995
+  DECODE: 0 bits
+  STD: no valid UID response
+  TX: UID_REQ_ADV2 (5 bits, val=0x18)
+  attempt 1/ADV2:
+  RX: 2 edges mode=AC2K
+  EDGES: L:5 H:24995
+  DECODE: 0 bits
+  RX: 2 edges mode=MC2K
+  EDGES: L:5 H:24995
+  DECODE: 0 bits
+  attempt 2/ADV2:
+  RX: 2 edges mode=AC2K
+  EDGES: L:5 H:24995
+  DECODE: 0 bits
+  RX: 2 edges mode=MC2K
+  EDGES: L:5 H:24995
+  DECODE: 0 bits
+  attempt 3/ADV2:
+  RX: 2 edges mode=AC2K
+  EDGES: L:5 H:24995
+  DECODE: 0 bits
+  RX: 2 edges mode=MC2K
+  EDGES: L:5 H:24995
+  DECODE: 0 bits
+  attempt 4/ADV2:
+  RX: 2 edges mode=AC2K
+  EDGES: L:5 H:24995
+  DECODE: 0 bits
+  RX: 2 edges mode=MC2K
+  EDGES: L:5 H:24995
+  DECODE: 0 bits
+  attempt 5/ADV2:
+  RX: 2 edges mode=AC2K
+  EDGES: L:5 H:24995
+  DECODE: 0 bits
+  RX: 2 edges mode=MC2K
+  EDGES: L:5 H:24995
+  DECODE: 0 bits
+  attempt 6/ADV2:
+  RX: 2 edges mode=AC2K
+  EDGES: L:5 H:24995
+  DECODE: 0 bits
+  RX: 2 edges mode=MC2K
+  EDGES: L:5 H:24995
+  DECODE: 0 bits
+  ADV2: no valid UID response
+  RESULT: TIMEOUT (no UID)
+ABORT: UID request failed (result=1)

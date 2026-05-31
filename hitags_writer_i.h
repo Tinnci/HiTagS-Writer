@@ -68,6 +68,7 @@ typedef enum {
     HitagSEventWipeOk,
     HitagSEventWipeFailed,
     HitagSEventDebugOk,
+    HitagSEventDebugPartial,
     HitagSEventDebugFailed,
 } HitagSCustomEvent;
 

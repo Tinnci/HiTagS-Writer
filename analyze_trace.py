@@ -206,6 +206,40 @@ def decode_ac2k(edges: list, sof_bits: int = 1) -> tuple:
     return data_bits, bytes(data[:(data_bits + 7) // 8])
 
 
+def ac2k_quality(edges: list) -> dict:
+    """Return simple quality metrics for a Flipper AC2K capture."""
+    usable_periods = 0
+    glitches = 0
+    long_gaps = 0
+    long_ac_periods = 0
+
+    for e in edges:
+        if e.level == "H":
+            continue
+        if e.duration < 80:
+            glitches += 1
+        elif e.duration > 1100:
+            long_gaps += 1
+            long_ac_periods += 1
+        elif e.duration > 600:
+            long_ac_periods += 1
+        else:
+            usable_periods += 1
+
+    return {
+        "usable_periods": usable_periods,
+        "glitches": glitches,
+        "long_gaps": long_gaps,
+        "long_ac_periods": long_ac_periods,
+        "too_noisy": glitches > 1 or long_ac_periods > 1,
+    }
+
+
+def is_valid_ac2k_uid_capture(bits: int, edges: list) -> bool:
+    """Return whether an AC2K capture is safe to accept as a UID response."""
+    return bits == 32 and not ac2k_quality(edges)["too_noisy"]
+
+
 # ============================================================
 # Trace file parser
 # ============================================================
@@ -218,6 +252,7 @@ class TraceFile:
     summary: str = ""
     uid: Optional[int] = None
     config: Optional[int] = None
+    proto_mode: str = "STD"
     raw_text: str = ""
 
 
@@ -295,6 +330,9 @@ def parse_trace(text: str) -> TraceFile:
             m5 = re.search(r'UID=([0-9A-Fa-f]{8})', stripped)
             if m5:
                 tf.uid = int(m5.group(1), 16)
+                mode_match = re.search(r'mode=(\w+)', stripped)
+                if mode_match:
+                    tf.proto_mode = mode_match.group(1)
             # Extract Config
             m6 = re.search(r'Config=([0-9A-Fa-f]{8})', stripped)
             if m6:
@@ -485,16 +523,25 @@ def generate_report(tf: TraceFile, show_edges: bool = False, redecode: bool = Fa
             # Re-decode if requested
             if redecode and cap.edges:
                 if cap.mode == 'MC4K':
-                    bits, data, _ = decode_mc4k(cap.edges, threshold=192, sof_bits=6)
+                    sof_bits = 6 if tf.proto_mode.upper().startswith("ADV") else 1
+                    bits, data, _ = decode_mc4k(cap.edges, threshold=192, sof_bits=sof_bits)
                     orig_hex = cap.decode_data.hex().upper() if cap.decode_data else "N/A"
                     new_hex = data.hex().upper() if data else "N/A"
                     lines.append(f"  Re-decode MC4K: {bits} bits = {new_hex}")
                     if orig_hex != new_hex and cap.decode_data:
                         lines.append(f"    ⚠ MISMATCH: original={orig_hex}")
                 elif cap.mode == 'AC2K':
-                    bits, data = decode_ac2k(cap.edges, sof_bits=1)
+                    sof_bits = 3 if tf.proto_mode.upper().startswith("ADV") else 0
+                    bits, data = decode_ac2k(cap.edges, sof_bits=sof_bits)
                     new_hex = data.hex().upper() if data else "N/A"
                     lines.append(f"  Re-decode AC2K: {bits} bits = {new_hex}")
+                    quality = ac2k_quality(cap.edges)
+                    if quality["too_noisy"]:
+                        lines.append(
+                            "    ⚠ AC2K noisy candidate: "
+                            f"{quality['glitches']} glitches, "
+                            f"{quality['long_ac_periods']} long AC gaps"
+                        )
 
         if txn.result:
             lines.append(f"  {txn.result}")
@@ -564,7 +611,7 @@ def generate_report(tf: TraceFile, show_edges: bool = False, redecode: bool = Fa
 def main():
     parser = argparse.ArgumentParser(
         description="Analyze HiTag S debug trace files (.htsd)")
-    parser.add_argument("trace_file", help="Path to .htsd trace file")
+    parser.add_argument("trace_file", nargs="+", help="Path to one or more .htsd trace files")
     parser.add_argument("--edges", action="store_true",
                         help="Show raw edge timing data")
     parser.add_argument("--redecode", action="store_true",
@@ -574,21 +621,27 @@ def main():
     args = parser.parse_args()
 
     try:
-        with open(args.trace_file, 'r') as f:
-            text = f.read()
-    except FileNotFoundError:
-        print(f"Error: File not found: {args.trace_file}", file=sys.stderr)
+        reports = []
+        for trace_file in args.trace_file:
+            with open(trace_file, 'r') as f:
+                text = f.read()
+            tf = parse_trace(text)
+            report = generate_report(tf, show_edges=args.edges, redecode=args.redecode)
+            if len(args.trace_file) > 1:
+                report = f"TRACE FILE: {trace_file}\n" + report
+            reports.append(report)
+    except FileNotFoundError as exc:
+        print(f"Error: File not found: {exc.filename}", file=sys.stderr)
         sys.exit(1)
 
-    tf = parse_trace(text)
-    report = generate_report(tf, show_edges=args.edges, redecode=args.redecode)
+    output = "\n\n".join(reports)
 
     if args.output:
         with open(args.output, 'w') as f:
-            f.write(report)
+            f.write(output)
         print(f"Report saved to {args.output}")
     else:
-        print(report)
+        print(output)
 
 
 if __name__ == "__main__":

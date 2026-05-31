@@ -6,7 +6,7 @@
 dist/
 .vscode/
 *.elf
+__pycache__/
+.reference/
 
-# pixi lock file
-pixi.lock
 refs/

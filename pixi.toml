@@ -1,18 +1,27 @@
 [workspace]
 authors = ["Tinnci <Tinnci@users.noreply.github.com>"]
 channels = ["conda-forge"]
-name = "HiTagS Writer"
-platforms = ["linux-64"]
+name = "hitags-writer"
+platforms = ["osx-64", "osx-arm64", "linux-64", "linux-aarch64"]
 version = "0.1.0"
 
 [tasks]
-install-ufbt = "pip install ufbt"
-build = { cmd = "ufbt", depends-on = ["install-ufbt"] }
-launch = { cmd = "ufbt launch", depends-on = ["install-ufbt"] }
-clean = "ufbt clean"
-lint = "ufbt lint"
+build = "ufbt"
+launch = "ufbt launch"
+clean = "ufbt -c"
+lint = "sh -c 'PATH=$(find \"$HOME/.ufbt/toolchain\" -path \"*/bin\" -type d | head -n 1):$PATH python \"$HOME/.ufbt/current/scripts/lint.py\" check . \"!./refs\"'"
+format = "sh -c 'PATH=$(find \"$HOME/.ufbt/toolchain\" -path \"*/bin\" -type d | head -n 1):$PATH python \"$HOME/.ufbt/current/scripts/lint.py\" format . \"!./refs\"'"
+cdb = "ufbt cdb"
+test = "sh -c 'cc -std=c11 -Itests/stubs -I. tests/test_em4100_decode.c em4100_encode.c -o /tmp/hitags_test_em4100_decode && /tmp/hitags_test_em4100_decode && python -m unittest discover -s tests -p \"test_*.py\"'"
+analyze-trace = "python analyze_trace.py"
+sim-manchester = "python sim_manchester.py"
+sim-mc4k = "python sim_mc4k_final.py"
+sim-ui = "python sim_ui_layout.py"
 
 [dependencies]
-python = ">=3.11"
-pip = "*"
+python = ">=3.11,<3.13"
 pyserial = ">=3.5,<4"
+colorlog = ">=6.9.0,<7"
+
+[pypi-dependencies]
+ufbt = "*"
