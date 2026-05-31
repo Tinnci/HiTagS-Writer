@@ -11,11 +11,13 @@
 #include "hitag_s_trace.h"
 #include <furi.h>
 #include <furi_hal.h>
+#include <string.h>
 
 #define TAG                               "HitagS"
 #define HITAG_S_START01_CONSENSUS_MIN     8
 #define HITAG_S_START01_CONSENSUS_MAX     4
 #define HITAG_S_UID_MODE_CONFIRMATION_MIN 2
+#define HITAG_HTU_RX_TIMEOUT_UID          25000 /* Hitag µ READ UID response */
 
 /** Append formatted text to trace buffer (if tracing is active) */
 static void trace_append(const char* fmt, ...) {
@@ -525,6 +527,177 @@ static size_t hitag_s_send_receive(
     }
 
     return bits;
+}
+
+static size_t hitag_htu_send_receive(
+    const uint8_t* tx_data,
+    size_t tx_bits,
+    uint8_t* rx_data,
+    size_t rx_max_bits,
+    uint32_t rx_timeout_us,
+    size_t sof_bits) {
+    hitag_s_send_htu_frame_with_early_rx(tx_data, tx_bits, hitag_s_capture_start, NULL);
+
+    uint32_t elapsed_us = 0;
+    uint32_t idle_us = 0;
+    size_t last_edge_count = 0;
+    while(elapsed_us < rx_timeout_us) {
+        const uint32_t step_us = 100;
+        furi_delay_us(step_us);
+        elapsed_us += step_us;
+
+        size_t edge_count = hs_capture.edge_count;
+        if(edge_count != last_edge_count) {
+            last_edge_count = edge_count;
+            idle_us = 0;
+        } else if(edge_count > 1) {
+            idle_us += step_us;
+            if(idle_us >= HITAG_S_T_RX_IDLE_US) break;
+        }
+    }
+
+    furi_hal_rfid_tim_read_capture_stop();
+
+    trace_append(
+        "  RX_META: elapsed_us=%lu idle_us=%lu timeout_us=%lu final_edges=%d early_rx=htu_tail\n",
+        (unsigned long)elapsed_us,
+        (unsigned long)idle_us,
+        (unsigned long)rx_timeout_us,
+        (int)hs_capture.edge_count);
+
+    if(hs_capture.edge_count == 0) {
+        trace_append("  RX: no edges (timeout %lu us)\n", (unsigned long)rx_timeout_us);
+        return 0;
+    }
+
+    if(hitag_s_trace_is_active()) {
+        trace_append(
+            "  RX: %d edges%s mode=MC4K threshold=%d sof=%d expected_bits=%d\n",
+            (int)hs_capture.edge_count,
+            hs_capture.overflow ? " [OVERFLOW]" : "",
+            HITAG_S_MC4K_THRESHOLD_US,
+            (int)sof_bits,
+            (int)rx_max_bits);
+        trace_append("  EDGES:");
+        size_t trace_edge_count = hs_capture.edge_count < HITAG_S_TRACE_MAX_EDGES_PER_RX ?
+                                      hs_capture.edge_count :
+                                      HITAG_S_TRACE_MAX_EDGES_PER_RX;
+        for(size_t i = 0; i < trace_edge_count; i++) {
+            trace_append(
+                " %s:%lu",
+                hs_capture.levels[i] ? "H" : "L",
+                (unsigned long)hs_capture.durations[i]);
+        }
+        if(trace_edge_count < hs_capture.edge_count) {
+            trace_append(
+                " ... truncated_edges=%d", (int)(hs_capture.edge_count - trace_edge_count));
+        }
+        trace_append("\n");
+    }
+
+    size_t bits = hitag_s_decode_mc4k(
+        &hs_capture, rx_data, rx_max_bits, sof_bits, HITAG_S_MC4K_THRESHOLD_US);
+
+    if(hitag_s_trace_is_active()) {
+        trace_append("  DECODE: %d bits", (int)bits);
+        if(bits > 0) {
+            size_t bytes = (bits + 7) / 8;
+            trace_append(" =");
+            for(size_t i = 0; i < bytes && i < 9; i++) {
+                trace_append(" %02X", rx_data[i]);
+            }
+        }
+        trace_append("\n");
+    }
+
+    return bits;
+}
+
+static uint32_t hitag_htu_frame_duration_us(const uint8_t* data, size_t bits) {
+    uint32_t duration = HITAG_S_T_0_CYCLES * HITAG_S_T0_US;
+    duration += (HITAG_S_T_LOW_CYCLES + HITAG_S_T_CODE_VIOLATION_CYCLES) * HITAG_S_T0_US;
+    for(size_t i = 0; i < bits; i++) {
+        uint8_t byte_idx = i / 8;
+        uint8_t bit_idx = 7 - (i % 8);
+        bool bit = (data[byte_idx] >> bit_idx) & 1U;
+        duration += (bit ? HITAG_S_T_1_CYCLES : HITAG_S_T_0_CYCLES) * HITAG_S_T0_US;
+    }
+    return duration;
+}
+
+HitagSResult hitag_htu_probe_uid(HitagHtuProbeInfo* info) {
+    if(info) memset(info, 0, sizeof(*info));
+
+    uint8_t tx[4] = {0};
+    size_t tx_bits = 0;
+    uint16_t tx_crc = hitag_htu_codec_build_read_uid_frame(tx, &tx_bits);
+
+    trace_append("\n--- HTU_8265_PROBE ---\n");
+    trace_append("  TX: HTU_READ_UID flags=CRCT cmd=0x02 crc=%04X\n", tx_crc);
+    trace_append(
+        "  TX_FRAME: frame=%02X %02X %02X %02X bits=%d tx_us=%lu sof=HTU\n",
+        tx[0],
+        tx[1],
+        tx[2],
+        tx[3],
+        (int)tx_bits,
+        (unsigned long)hitag_htu_frame_duration_us(tx, tx_bits));
+
+    uint8_t rx[9] = {0};
+    size_t rx_bits = hitag_htu_send_receive(tx, tx_bits, rx, 65, HITAG_HTU_RX_TIMEOUT_UID, 0);
+    uint8_t uid[HITAG_HTU_UID_SIZE] = {0};
+    size_t accepted_sof = 0;
+    bool ok = hitag_htu_codec_decode_uid_response(rx, rx_bits, uid);
+
+    for(size_t sof = 1; !ok && sof <= 6; sof++) {
+        memset(rx, 0, sizeof(rx));
+        rx_bits = hitag_s_decode_mc4k(&hs_capture, rx, 65, sof, HITAG_S_MC4K_THRESHOLD_US);
+        ok = hitag_htu_codec_decode_uid_response(rx, rx_bits, uid);
+        if(ok) accepted_sof = sof;
+    }
+
+    if(!ok) {
+        if(rx_bits == 0) {
+            trace_append("  RESULT: no HTU READ UID response\n");
+            return HitagSResultTimeout;
+        }
+        trace_append("  RESULT: HTU READ UID response rejected bits=%d crc16=bad\n", (int)rx_bits);
+        return HitagSResultCrcError;
+    }
+
+    if(info) {
+        info->detected = true;
+        memcpy(info->uid, uid, HITAG_HTU_UID_SIZE);
+        info->response_bits = rx_bits;
+    }
+
+    FURI_LOG_W(
+        TAG,
+        "HTU/8265 probe UID=%02X%02X%02X%02X%02X%02X (48-bit, CRC16 OK)",
+        uid[0],
+        uid[1],
+        uid[2],
+        uid[3],
+        uid[4],
+        uid[5]);
+    trace_append(
+        "  RESULT: HTU UID=%02X%02X%02X%02X%02X%02X bits=%d crc16=ok sof=%d\n",
+        uid[0],
+        uid[1],
+        uid[2],
+        uid[3],
+        uid[4],
+        uid[5],
+        (int)rx_bits,
+        (int)accepted_sof);
+    return HitagSResultOk;
+}
+
+HitagSResult hitag_htu_probe_uid_sequence(HitagHtuProbeInfo* info) {
+    hitag_s_field_on();
+    HitagSResult result = hitag_htu_probe_uid(info);
+    hitag_s_field_off();
+    return result;
 }
 
 /* ============================================================

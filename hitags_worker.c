@@ -30,6 +30,24 @@ static void hitags_worker_count_any_dump_pages(HitagSApp* app) {
     }
 }
 
+static bool hitags_worker_probe_htu_once(const char* flow) {
+    HitagHtuProbeInfo htu = {0};
+    HitagSResult result = hitag_htu_probe_uid_sequence(&htu);
+    if(result != HitagSResultOk || !htu.detected) return false;
+
+    FURI_LOG_W(
+        TAG,
+        "%s: detected Hitag µ/8265 UID=%02X%02X%02X%02X%02X%02X; Hitag S flow not applicable",
+        flow,
+        htu.uid[0],
+        htu.uid[1],
+        htu.uid[2],
+        htu.uid[3],
+        htu.uid[4],
+        htu.uid[5]);
+    return true;
+}
+
 static void hitags_worker_write_em4100(HitagSApp* app) {
     Em4100HitagData hitag_data;
     em4100_prepare_hitag_data(app->em4100_id, &hitag_data);
@@ -81,6 +99,7 @@ static void hitags_worker_read_uid(HitagSApp* app) {
 
         if(attempts >= max_attempts) {
             FURI_LOG_W(TAG, "UID read failed after %d attempts", attempts);
+            hitags_worker_probe_htu_once("Read UID");
             view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventReadFailed);
             return;
         }
@@ -120,6 +139,7 @@ static void hitags_worker_read_pages(HitagSApp* app) {
 
         if(attempts >= max_attempts) {
             FURI_LOG_W(TAG, "Read failed after %d attempts", attempts);
+            hitags_worker_probe_htu_once("Read Tag Data");
             view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventReadFailed);
             return;
         }
@@ -278,11 +298,6 @@ static void hitags_worker_debug_read(HitagSApp* app) {
         hitags_worker_count_dump_pages(app);
         FURI_LOG_I(TAG, "Debug read OK — %d pages", app->dump_read_count);
         view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventDebugOk);
-    } else if(app->debug_trace && !report.session.selected) {
-        FURI_LOG_W(TAG, "Debug read captured only rejected noise; trace save disabled");
-        furi_string_free((FuriString*)app->debug_trace);
-        app->debug_trace = NULL;
-        view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventDebugFailed);
     } else if(app->debug_trace && report.session.selected) {
         hitags_worker_count_any_dump_pages(app);
         FURI_LOG_W(
@@ -291,6 +306,15 @@ static void hitags_worker_debug_read(HitagSApp* app) {
             (int)app->last_result,
             app->dump_read_count);
         view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventDebugPartial);
+    } else if(app->debug_trace && report.htu_probe.detected) {
+        hitags_worker_count_any_dump_pages(app);
+        FURI_LOG_W(TAG, "Debug read detected Hitag µ/8265; trace ready");
+        view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventDebugPartial);
+    } else if(app->debug_trace && !report.session.selected && !report.htu_probe.detected) {
+        FURI_LOG_W(TAG, "Debug read captured only rejected noise; trace save disabled");
+        furi_string_free((FuriString*)app->debug_trace);
+        app->debug_trace = NULL;
+        view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventDebugFailed);
     } else {
         FURI_LOG_W(TAG, "Debug read failed (result=%d)", (int)app->last_result);
         view_dispatcher_send_custom_event(app->view_dispatcher, HitagSEventDebugFailed);

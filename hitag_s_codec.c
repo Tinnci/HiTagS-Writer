@@ -13,6 +13,19 @@
 #define HITAG_S_CODEC_T_STOP_CYCLES 36U
 #define HITAG_S_START01_MIN_VOTES   8U
 #define HITAG_S_START01_MIN_PARTIAL 4U
+#define HITAG_HTU_FLAG_CRCT         0x04U
+#define HITAG_HTU_CMD_READ_UID      0x02U
+#define HITAG_HTU_CRC16_POLY_CCITT  0x1021U
+
+static uint16_t hitag_htu_codec_reflect16(uint16_t v) {
+    uint16_t out = 0;
+    for(size_t i = 0; i < 16; i++) {
+        if(v & (1U << i)) {
+            out |= (uint16_t)(1U << (15 - i));
+        }
+    }
+    return out;
+}
 
 uint8_t hitag_s_codec_crc8(const uint8_t* data, size_t bits) {
     uint8_t crc = 0xFF;
@@ -42,6 +55,78 @@ void hitag_s_codec_pack_bits(uint8_t* buf, size_t* bit_pos, uint32_t value, size
         }
     }
     *bit_pos += n_bits;
+}
+
+void hitag_htu_codec_pack_bits_lsb(uint8_t* buf, size_t* bit_pos, uint32_t value, size_t n_bits) {
+    for(size_t i = 0; i < n_bits; i++) {
+        size_t pos = *bit_pos + i;
+        uint8_t byte_idx = pos / 8;
+        uint8_t bit_idx = 7 - (pos % 8);
+        bool bit_val = (value >> i) & 1U;
+        if(bit_val) {
+            buf[byte_idx] |= (uint8_t)(1U << bit_idx);
+        } else {
+            buf[byte_idx] &= (uint8_t) ~(1U << bit_idx);
+        }
+    }
+    *bit_pos += n_bits;
+}
+
+uint16_t hitag_htu_codec_crc16(const uint8_t* data, size_t bits, bool refout) {
+    if(bits == 0) return 0xFFFFU;
+
+    uint16_t remainder = 0;
+    uint8_t offset = 8 - (bits % 8);
+    uint8_t prebits = 0;
+
+    for(size_t i = 0; i < (bits + 7) / 8; i++) {
+        uint8_t c = (uint8_t)(prebits | (data[i] >> offset));
+        prebits = (uint8_t)(data[i] << (8 - offset));
+
+        remainder ^= (uint16_t)c << 8;
+        for(size_t j = 0; j < 8; j++) {
+            if(remainder & 0x8000U) {
+                remainder = (uint16_t)((remainder << 1) ^ HITAG_HTU_CRC16_POLY_CCITT);
+            } else {
+                remainder = (uint16_t)(remainder << 1);
+            }
+        }
+    }
+
+    return refout ? hitag_htu_codec_reflect16(remainder) : remainder;
+}
+
+uint16_t hitag_htu_codec_build_read_uid_frame(uint8_t* buf, size_t* bits) {
+    *bits = 0;
+    hitag_htu_codec_pack_bits_lsb(buf, bits, HITAG_HTU_FLAG_CRCT, 5);
+    hitag_htu_codec_pack_bits_lsb(buf, bits, HITAG_HTU_CMD_READ_UID, 6);
+    uint16_t crc = hitag_htu_codec_crc16(buf, *bits, true);
+    hitag_htu_codec_pack_bits_lsb(buf, bits, crc, 16);
+    return crc;
+}
+
+static bool hitag_s_codec_get_bit(const uint8_t* data, size_t bit_pos) {
+    return (data[bit_pos / 8] >> (7 - (bit_pos % 8))) & 1U;
+}
+
+bool hitag_htu_codec_decode_uid_response(
+    const uint8_t* rx,
+    size_t rx_bits,
+    uint8_t uid[HITAG_HTU_UID_SIZE]) {
+    const size_t expected_bits = 1 + (HITAG_HTU_UID_SIZE * 8) + 16;
+    if(rx_bits < expected_bits) return false;
+    if(hitag_htu_codec_crc16(rx, expected_bits, false) != 0) return false;
+
+    for(size_t i = 0; i < HITAG_HTU_UID_SIZE; i++) {
+        uint8_t b = 0;
+        for(size_t j = 0; j < 8; j++) {
+            if(hitag_s_codec_get_bit(rx, 1 + (i * 8) + j)) {
+                b |= (uint8_t)(1U << (7 - j));
+            }
+        }
+        uid[i] = b;
+    }
+    return true;
 }
 
 uint8_t hitag_s_codec_build_select_frame(uint8_t* buf, size_t* bits, uint32_t uid) {

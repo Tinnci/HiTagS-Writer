@@ -333,9 +333,42 @@ class SourceInvariantTests(unittest.TestCase):
         )[0]
 
         self.assertIn("!report.session.selected", debug_read)
+        self.assertIn("!report.htu_probe.detected", debug_read)
         self.assertIn("furi_string_free((FuriString*)app->debug_trace)", debug_read)
         self.assertIn("app->debug_trace = NULL", debug_read)
         self.assertIn("report.session.selected", debug_read.split("HitagSEventDebugPartial", 1)[0])
+
+    def test_debug_read_keeps_trace_when_htu_probe_detects_8265(self):
+        source = (ROOT / "hitag_s_8268.c").read_text()
+        worker = (ROOT / "hitags_worker.c").read_text()
+        debug_read_ex = source.split("HitagSResult hitag_s_debug_read_sequence_ex", 1)[1]
+        debug_worker = worker.split("static void hitags_worker_debug_read", 1)[1].split(
+            "int32_t hitags_writer_worker_thread", 1
+        )[0]
+
+        self.assertIn("hitag_htu_probe_uid(&report->htu_probe)", debug_read_ex)
+        self.assertLess(
+            debug_read_ex.index("hitag_htu_probe_uid(&report->htu_probe)"),
+            debug_read_ex.index("while(!hitag_s_debug_read_budget_expired"),
+        )
+        self.assertIn('report->failure_stage = "HTU"', debug_read_ex)
+        self.assertIn("ABORT: HTU/8265 detected", debug_read_ex)
+        self.assertIn("report.htu_probe.detected", debug_worker)
+        self.assertIn("HitagSEventDebugPartial", debug_worker)
+
+    def test_read_flows_run_htu_probe_before_final_failure(self):
+        worker = (ROOT / "hitags_worker.c").read_text()
+        self.assertIn("hitags_worker_probe_htu_once", worker)
+
+        read_uid = worker.split("static void hitags_worker_read_uid", 1)[1].split(
+            "static void hitags_worker_read_pages", 1
+        )[0]
+        read_pages = worker.split("static void hitags_worker_read_pages", 1)[1].split(
+            "static void hitags_worker_write_uid", 1
+        )[0]
+
+        self.assertIn("hitags_worker_probe_htu_once(\"Read UID\")", read_uid)
+        self.assertIn("hitags_worker_probe_htu_once(\"Read Tag Data\")", read_pages)
 
     def test_rf_decode_hot_path_does_not_flood_runtime_log(self):
         source = (ROOT / "hitag_s_session.c").read_text()

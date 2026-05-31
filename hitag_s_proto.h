@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include "hitag_s_codec.h"
 #include "em4100_encode.h"
 
 #ifdef __cplusplus
@@ -173,17 +174,18 @@ static inline bool hitag_s_page_locked(const HitagSConfig* cfg, uint8_t page) {
  * Based on Proxmark3 Hitag S implementation.
  * T0 = 8 µs (one carrier cycle at 125 kHz).
  */
-#define HITAG_S_T0_US             8 /* Base time unit */
-#define HITAG_S_T_LOW_CYCLES      8 /* Gap low duration in T0 cycles (spec: 4..10, PM3: 8) */
-#define HITAG_S_T_0_CYCLES        20 /* Bit '0' total duration in T0 cycles (spec: 18..22, PM3: 20) */
-#define HITAG_S_T_1_CYCLES        28 /* Bit '1' total duration in T0 cycles (spec: 26..32, PM3: 28) */
-#define HITAG_S_T_STOP_CYCLES     36 /* Stop/EOF duration in T0 cycles (spec: >=36, PM3: 36) */
-#define HITAG_S_T_WAIT_POWERUP_US 3000 /* Power-up + START_AUTH window margin */
-#define HITAG_S_T_WAIT_SC_US      1600 /* Standard command wait (200 × T0, spec: 90..5000) */
-#define HITAG_S_T_WAIT_INTER_US   400 /* After RX idle, top up to about T_WAIT_SC before next TX */
-#define HITAG_S_T_WAIT_RESP_US    200 /* Wait for tag response */
-#define HITAG_S_T_RX_IDLE_US      1200 /* Stop receive after response edges go idle */
-#define HITAG_S_T_PROG_US         6000 /* Program time after write (750 × T0, spec: 716..726) */
+#define HITAG_S_T0_US                   8 /* Base time unit */
+#define HITAG_S_T_LOW_CYCLES            8 /* Gap low duration in T0 cycles (spec: 4..10, PM3: 8) */
+#define HITAG_S_T_0_CYCLES              20 /* Bit '0' total duration in T0 cycles (spec: 18..22, PM3: 20) */
+#define HITAG_S_T_1_CYCLES              28 /* Bit '1' total duration in T0 cycles (spec: 26..32, PM3: 28) */
+#define HITAG_S_T_STOP_CYCLES           36 /* Stop/EOF duration in T0 cycles (spec: >=36, PM3: 36) */
+#define HITAG_S_T_CODE_VIOLATION_CYCLES 36 /* Hitag µ SOF code-violation carrier tail */
+#define HITAG_S_T_WAIT_POWERUP_US       3000 /* Power-up + START_AUTH window margin */
+#define HITAG_S_T_WAIT_SC_US            1600 /* Standard command wait (200 × T0, spec: 90..5000) */
+#define HITAG_S_T_WAIT_INTER_US         400 /* After RX idle, top up to about T_WAIT_SC before next TX */
+#define HITAG_S_T_WAIT_RESP_US          200 /* Wait for tag response */
+#define HITAG_S_T_RX_IDLE_US            1200 /* Stop receive after response edges go idle */
+#define HITAG_S_T_PROG_US               6000 /* Program time after write (750 × T0, spec: 716..726) */
 
 /* --- MC4K Manchester decoding (post-SELECT data exchange) ---
  * Half-bit = 128µs = 16 × T0, Full-bit = 256µs = 32 × T0 */
@@ -248,7 +250,14 @@ typedef enum {
 } HitagSPageStatus;
 
 typedef struct {
+    bool detected;
+    uint8_t uid[HITAG_HTU_UID_SIZE];
+    size_t response_bits;
+} HitagHtuProbeInfo;
+
+typedef struct {
     HitagSSessionInfo session;
+    HitagHtuProbeInfo htu_probe;
     const char* failure_stage;
     HitagSPageStatus page_status[HITAG_S_MAX_PAGES];
 } HitagSDebugReadReport;
@@ -282,6 +291,12 @@ void hitag_s_send_frame_with_early_rx(
     HitagSRxStartCallback start_rx,
     void* context);
 
+void hitag_s_send_htu_frame_with_early_rx(
+    const uint8_t* data,
+    size_t bits,
+    HitagSRxStartCallback start_rx,
+    void* context);
+
 /**
  * @brief Start 125 kHz carrier for Hitag S communication
  */
@@ -310,6 +325,10 @@ HitagSResult hitag_s_select(uint32_t uid, uint32_t* config);
 const char* hitag_s_mode_name(HitagSMode mode);
 
 HitagSResult hitag_s_open_session(HitagSSessionInfo* session);
+
+HitagSResult hitag_htu_probe_uid(HitagHtuProbeInfo* info);
+
+HitagSResult hitag_htu_probe_uid_sequence(HitagHtuProbeInfo* info);
 
 /**
  * @brief Authenticate to 8268 chip by writing password to page 64

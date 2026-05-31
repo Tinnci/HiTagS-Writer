@@ -433,6 +433,13 @@ HitagSResult hitag_s_debug_read_sequence_ex(
         "Field ON: carrier=125000Hz duty=0.5 pull=release powerup_us=%d\n",
         HITAG_S_T_WAIT_POWERUP_US);
 
+    HitagSResult htu_result = hitag_htu_probe_uid(&report->htu_probe);
+    if(htu_result == HitagSResultOk && report->htu_probe.detected) {
+        report->failure_stage = "HTU";
+        trace_append("ABORT: HTU/8265 detected; Hitag S dump not attempted\n");
+        return hitag_s_debug_read_finish(HitagSResultError, uid, pages, page_valid, 0, report);
+    }
+
     HitagSSessionInfo session = {0};
     HitagSResult result = HitagSResultTimeout;
     uint32_t start_tick = furi_get_tick();

@@ -28,6 +28,17 @@ static void hitag_s_send_stop(void) {
     furi_delay_us(t_stop);
 }
 
+static void hitag_s_send_htu_sof(void) {
+    uint32_t t_low = HITAG_S_T_LOW_CYCLES * HITAG_S_T0_US;
+    uint32_t t_violation = HITAG_S_T_CODE_VIOLATION_CYCLES * HITAG_S_T0_US;
+
+    hitag_s_send_bit(false);
+    furi_hal_rfid_tim_read_pause();
+    furi_delay_us(t_low);
+    furi_hal_rfid_tim_read_continue();
+    furi_delay_us(t_violation);
+}
+
 void hitag_s_send_frame(const uint8_t* data, size_t bits) {
     for(size_t i = 0; i < bits; i++) {
         uint8_t byte_idx = i / 8;
@@ -61,6 +72,23 @@ void hitag_s_send_frame_with_early_rx(
     FURI_CRITICAL_EXIT();
 
     furi_delay_us(t_stop);
+}
+
+void hitag_s_send_htu_frame_with_early_rx(
+    const uint8_t* data,
+    size_t bits,
+    HitagSRxStartCallback start_rx,
+    void* context) {
+    FURI_CRITICAL_ENTER();
+    hitag_s_send_htu_sof();
+    for(size_t i = 0; i < bits; i++) {
+        uint8_t byte_idx = i / 8;
+        uint8_t bit_idx = 7 - (i % 8);
+        bool value = (data[byte_idx] >> bit_idx) & 1U;
+        hitag_s_send_bit(value);
+    }
+    if(start_rx) start_rx(context);
+    FURI_CRITICAL_EXIT();
 }
 
 void hitag_s_field_on(void) {

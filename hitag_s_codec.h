@@ -34,9 +34,22 @@ typedef struct {
     const char* label;
 } HitagSUidVariant;
 
+#define HITAG_HTU_UID_SIZE 6
+
 uint8_t hitag_s_codec_crc8(const uint8_t* data, size_t bits);
 
 void hitag_s_codec_pack_bits(uint8_t* buf, size_t* bit_pos, uint32_t value, size_t n_bits);
+
+void hitag_htu_codec_pack_bits_lsb(uint8_t* buf, size_t* bit_pos, uint32_t value, size_t n_bits);
+
+uint16_t hitag_htu_codec_crc16(const uint8_t* data, size_t bits, bool refout);
+
+uint16_t hitag_htu_codec_build_read_uid_frame(uint8_t* buf, size_t* bits);
+
+bool hitag_htu_codec_decode_uid_response(
+    const uint8_t* rx,
+    size_t rx_bits,
+    uint8_t uid[HITAG_HTU_UID_SIZE]);
 
 uint8_t hitag_s_codec_build_select_frame(uint8_t* buf, size_t* bits, uint32_t uid);
 
